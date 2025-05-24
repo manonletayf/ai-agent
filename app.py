@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 import re
-from gpt_utils import find_companies, score_company
+from gpt_utils import (
+    find_companies, score_company,
+    generate_summary_for_targeting,
+    suggest_additional_filters)
 from hunter_utils import get_domain, get_contacts
 import io
 
