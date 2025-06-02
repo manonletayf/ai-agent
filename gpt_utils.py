@@ -86,3 +86,26 @@ def find_companies(location, sector, goal=None, n_results=5, historic=[]):
     except Exception as e:
         st.error(f"❌ OpenAI — erreur lors de la recherche d'entreprises : {e}")
         return []
+
+def get_domain_from_gpt(company_name):
+    """
+    Use GPT to guess the most likely domain name for a company.
+    
+    Args:
+        company_name (str): The name of the company
+        
+    Returns:
+        str: The predicted domain name, or None if there's an error
+    """
+    try:
+        gpt_prompt = f"What is the most likely website domain of the company named {company_name}? only return the domain name without any other text."
+        response = client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[{"role": "user", "content": gpt_prompt}],
+            temperature=0.2,
+            max_tokens=20
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"❌ GPT failed to guess the domain: {e}")
+        return None

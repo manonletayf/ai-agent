@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
-from gpt_utils import find_companies
+from gpt_utils import find_companies, get_domain_from_gpt
 from hunter_utils import get_domain, get_contacts
 import io
 
@@ -137,20 +137,9 @@ else:
                     continue
                 if not domain:
                     st.warning("🔄 Domain not found via Hunter.io, trying GPT...")
-                    try:
-                        from gpt_utils import client
-                        gpt_prompt = f"What is the most likely website domain of the company named {name}? only return the domain name without any other text."
-                        response = client.chat.completions.create(
-                            model="gpt-4-1106-preview",
-                            messages=[{"role": "user", "content": gpt_prompt}],
-                            temperature=0.2,
-                            max_tokens=20
-                        )
-                        domain = response.choices[0].message.content.strip()
+                    domain = get_domain_from_gpt(name)
+                    if domain:
                         st.info(f"✅ Domain suggested by GPT: `{domain}`")
-                    except Exception as e:
-                        st.error(f"❌ GPT failed to guess the domain: {e}")
-                        continue
 
             if not domain:
                 st.error("❌ No domain found for this company.")
@@ -193,8 +182,3 @@ else:
             file_name="stakeholder_contacts.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    
-# if companies:
-#     st.markdown(f"### {len(companies)} companies generated.")
-#     if 'enriched_contacts' in locals() and enriched_contacts:
-#         st.markdown(f"### {len(enriched_contacts)} stakeholder contacts found.")
