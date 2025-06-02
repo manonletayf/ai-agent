@@ -1,4 +1,4 @@
-# AI-powered Company Finder and Contact Enrichment Tool
+# AI-powered Prospects Finder and Contact Enrichment Tool
 
 This project is an AI-powered tool designed to identify target companies based on specific criteria and enrich them with stakeholder contact information. It leverages the OpenAI API for company identification and the Hunter.io API for contact discovery. The Streamlit-based application provides a user-friendly interface for defining company criteria, finding companies, and exporting the results.
 
