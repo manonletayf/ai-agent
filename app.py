@@ -1,10 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
-from gpt_utils import (
-    find_companies, find_new,
-    generate_summary_for_targeting,
-    suggest_additional_filters)
+from gpt_utils import find_companies
 from hunter_utils import get_domain, get_contacts
 import io
 
@@ -16,7 +13,6 @@ st.header("Target Companies Finder")
 
 location = st.text_input("📍 Location (optional)", placeholder="e.g. London, Manchester")
 sector = st.text_input("🏭 Sector (optional)", placeholder="e.g. Legal, HR, Tech")
-size = st.text_input("👥 Approximate Company Size (optional)", placeholder="e.g. 50+, mid-sized, under 500")
 goal = st.text_input("🎯 Why are you targeting them?", placeholder="e.g. Offer a workplace childcare solution")
 n_companies = st.slider("📦 Number of companies to generate", min_value=1, max_value=20, value=5)
 
@@ -26,23 +22,46 @@ companies = st.session_state.get("companies", [])
 if not companies:
     if st.button("Find Companies", use_container_width=True):
         with st.spinner("Thinking..."):
-            companies = find_companies(location, sector, size, goal, n_results=n_companies)
+            if 'historic_companies' not in st.session_state:
+                st.session_state['historic_companies'] = []
+            historic = st.session_state['historic_companies']
+            companies = find_companies(location, sector, goal, n_results=n_companies, historic=historic)
 
         if not companies:
             st.warning("⚠️ GPT response couldn't be parsed or was empty.")
         else:
             st.session_state["companies"] = companies
-            st.session_state['historic_companies'] = list(companies)
+            st.session_state['historic_companies'].extend(list(companies))
+            st.rerun()
 
 # Only show the list and export if companies exist
-if companies:
+else:
     st.markdown("---")
     scores = {}
+    # Add custom CSS for the company boxes
+    st.markdown("""
+        <style>
+        .company-box {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #f8f9fa;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     for i, company in enumerate(companies):
         name = company["legal_name"]
-        desc = company["description"]
-        with st.expander(f"🔹 {name}"):
-            st.write(desc)
+        approx_size = company["estimated_uk_size"]
+        # Format the number with commas if it's not "unknown"
+        formatted_size = f"{int(approx_size):,}" if approx_size != "unknown" else "unknown"
+        with st.container():
+            st.markdown(f"""
+                <div class="company-box">
+                    🔹 {name} (estimated UK size: {formatted_size})
+                </div>
+            """, unsafe_allow_html=True)
 
     st.markdown('\n---')
     # Add Excel export for companies list
@@ -54,28 +73,34 @@ if companies:
     
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button(
+        if st.button("Clear results", use_container_width=True):
+            st.session_state["companies"] = []
+            companies = []
+            st.rerun()
+        
+    with col2:
+        if st.button("🔄 Reload results", use_container_width=True):
+            with st.spinner("Thinking..."):
+                historic = st.session_state.get('historic_companies', [])
+                new_companies = find_companies(location, sector, goal, n_results=n_companies, historic=historic)
+                if not new_companies:
+                    st.warning("⚠️ GPT response couldn't be parsed or was empty.")
+                else:
+                    st.session_state["companies"] = new_companies
+                    if not historic:
+                        st.session_state['historic_companies'] = list(new_companies)
+                    else:
+                        st.session_state['historic_companies'].extend(new_companies)
+                    companies = new_companies
+                    st.rerun()
+                
+    st.download_button(
             label=f"📤 Download Companies List (Excel)",
             data=output_companies.getvalue(),
             file_name="companies_list.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-        
-    with col2:
-        if st.button("🔄 Reload results", use_container_width=True):
-            st.session_state['companies'] = []
-            with st.spinner("Thinking..."):
-                new_companies = find_new(location, sector, size, goal, n_results=n_companies)
-                st.session_state["companies"] = new_companies
-            if st.session_state['companies'] == []:
-                st.warning("⚠️ GPT response couldn't be parsed or was empty.")
-            else:
-                if 'historic_companies' not in st.session_state:
-                    st.session_state['historic_companies'] = []
-                st.session_state['historic_companies'].extend(new_companies)
-                st.rerun()
-
 
     st.markdown('\n---')
     # --- Step 3: Find and Enrich Stakeholder Contacts ---
@@ -94,17 +119,13 @@ if companies:
     )
     role_keywords = [role.lower() for role in role_keywords]
 
-    refresh_cache = st.checkbox("🔄 Refresh results (ignore cache)")
-    if refresh_cache:
-        st.cache_data.clear()
-        st.info("✅ Cache cleared — data will be reloaded from Hunter.io")
-
     enriched_contacts = []
 
     if st.button("Find Stakeholder Contacts"):
-        for company in companies:
+        all_companies = st.session_state['historic_companies']
+        for company in all_companies:
             name = company["legal_name"]
-            desc = company["description"]
+            approx_size = company["estimated_uk_size"]
             if name not in selected_names:
                 continue
 
@@ -148,7 +169,7 @@ if companies:
                     )
                     enriched_contacts.append({
                         "Company": name,
-                        "Description": desc,
+                        "Estimated UK size": approx_size,
                         "Contact Name": c["name"],
                         "Position": c["position"] or "",
                         "Email": c["email"],

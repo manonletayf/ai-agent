@@ -17,6 +17,7 @@ def get_domain(company_name):
 
         url = f"https://api.hunter.io/v2/domain-search?company={company_name}&api_key={HUNTER_API_KEY}"
         res = requests.get(url, timeout=10)
+        st.write(res.status_code)
         res.raise_for_status()
         return res.json().get("data", {}).get("domain")
     except requests.exceptions.HTTPError as e:
