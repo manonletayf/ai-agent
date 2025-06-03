@@ -61,7 +61,7 @@ def find_companies(location, sector, goal=None, n_results=5, historic=[]):
         {exclusion_line}
         Return ONLY a JSON array, where each object has:
         - legal_name: the official, registered name of the company (no extra text)
-        - estimated_uk_size: the estimated number of employees in the UK (no extra text). If you don't know, use "unknown".
+        - estimated_uk_size: the estimated number of employees in the UK (no extra text). It should be found on wikipedia, official reports, or other reliable sources or reliable articles.
         """
         response = client.chat.completions.create(
             model="gpt-4-1106-preview",
