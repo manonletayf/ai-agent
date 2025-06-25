@@ -45,4 +45,4 @@ def search_companies(filters: dict) -> list[dict]:
     elif isinstance(data, dict) and "results" in data:
         return data["results"]
     else:
-        raise ValueError("Unexpected API
+        raise ValueError("Unexpected API response format")
