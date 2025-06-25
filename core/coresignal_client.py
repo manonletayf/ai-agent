@@ -3,7 +3,7 @@
 import requests
 from config import CORESIGNAL_API_KEY
 
-BASE_URL = "https://api.coresignal.com/api/v2/company/base/search/filter"
+BASE_URL = "https://api.coresignal.com/cdapi/v2/company_base/search/filter"
 
 def search_companies(filters: dict) -> list[dict]:
     """
@@ -12,8 +12,8 @@ def search_companies(filters: dict) -> list[dict]:
 
     headers = {
         "accept": "application/json",
-        "content-type": "application/json",
-        "apikey": CORESIGNAL_API_KEY
+        "apikey": CORESIGNAL_API_KEY,
+        "Content-Type": "application/json"
     }
 
     payload = {}
@@ -23,22 +23,26 @@ def search_companies(filters: dict) -> list[dict]:
         "industry": "industry",
         "country": "country",
         "location": "location",
-        "employees_count_gte": "employees count gte",
-        "funding_total_rounds_count_gte": "funding total rounds count gte",
-        "funding_last_round_date_gte": "funding last round date gte",
-        "funding_last_round_type": "funding last round type",
-        "last_updated_gte": "last updated gte"
+        "employees_count_gte": "employees_count_gte",        
+        "last updated gte": "last updated gte"
     }
 
     for key, field in mapping.items():
         if key in filters and filters[key]:
             payload[field] = filters[key]
 
-    # Ajout de la limite
-    payload["limit"] = filters.get("limit", 20)
 
     response = requests.post(BASE_URL, headers=headers, json=payload)
+
+    print("🔎 Response status:", response.status_code)
     if response.status_code != 200:
         raise Exception(f"Coresignal API error {response.status_code}: {response.text}")
-
-    return response.json().get("results", [])
+    
+    data = response.json()
+    print("📦 Search results:", data)
+    if isinstance(data, list):
+        return data
+    elif isinstance(data, dict) and "results" in data:
+        return data["results"]
+    else:
+        raise ValueError("Unexpected API response format")
