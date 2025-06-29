@@ -10,6 +10,12 @@ load_environment()
 st.set_page_config(page_title="Company Search", layout="centered")
 st.title("🔎 Advanced Company Filter")
 
+# --- Session State Initialization ---
+def get_state(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+    return st.session_state[key]
+
 # --- Static filter lists
 company_sizes = [
     "2-10 employees",
@@ -777,35 +783,79 @@ countries = [
     "Zambia",
     "Zimbabwe"
 ]
-employees_count_option = st.radio("👷 Employees count filter", ["Ignore", "Specify"])
+
+# --- Employees count filter
+employees_count_option = st.radio(
+    "👷 Employees count filter",
+    ["Ignore", "Specify"],
+    index=get_state("employees_count_option_index", 0),
+    key="employees_count_option"
+)
+st.session_state["employees_count_option_index"] = ["Ignore", "Specify"].index(st.session_state["employees_count_option"])
+
 employees_count_gte = None
-if employees_count_option == "Specify":
-    employees_count_gte = st.number_input("Employees count ≥", min_value=0, value=100)
+if st.session_state["employees_count_option"] == "Specify":
+    employees_count_gte = st.number_input(
+        "Employees count ≥",
+        min_value=0,
+        value=get_state("employees_count_gte", 100),
+        key="employees_count_gte"
+    )
 
 # --- UI Form
 with st.form("filters_form"):
-    size = st.selectbox("👥 Company Size", ["None"] + company_sizes)
-    industry = st.selectbox("🏭 Industry", ["None"] + industries)
-    country = st.selectbox("🌍 Country", ["None"] + countries)
-    location = st.text_input("📍 Location (city or region)", "")
-    last_updated = st.date_input("🗓️ Last updated ≥", value=None)
+    size = st.selectbox(
+        "👥 Company Size",
+        ["None"] + company_sizes,
+        index=get_state("size_index", 0),
+        key="size"
+    )
+    st.session_state["size_index"] = (["None"] + company_sizes).index(st.session_state["size"])
+
+    industry = st.selectbox(
+        "🏭 Industry",
+        ["None"] + industries,
+        index=get_state("industry_index", 0),
+        key="industry"
+    )
+    st.session_state["industry_index"] = (["None"] + industries).index(st.session_state["industry"])
+
+    country = st.selectbox(
+        "🌍 Country",
+        ["None"] + countries,
+        index=get_state("country_index", 0),
+        key="country"
+    )
+    st.session_state["country_index"] = (["None"] + countries).index(st.session_state["country"])
+
+    location = st.text_input(
+        "📍 Location (city or region)",
+        get_state("location", ""),
+        key="location"
+    )
+    last_updated = st.date_input(
+        "🗓️ Last updated ≥",
+        value=get_state("last_updated", None),
+        key="last_updated"
+    )
     submit = st.form_submit_button("🔍 Search")
 
 if submit:
     filters = {}
-    if size and size != "None":
-        filters["size"] = size
+    if st.session_state["size"] and st.session_state["size"] != "None":
+        filters["size"] = st.session_state["size"]
     if employees_count_gte is not None and employees_count_gte > 0:
         filters["employees_count_gte"] = employees_count_gte
-    if industry and industry != "None":
-        filters["industry"] = industry
-    if country and country != "None":
-        filters["country"] = country
-    if location.strip():
-        filters["location"] = location.strip()
-    if last_updated:
-        filters["last_updated_gte"] = str(last_updated)
+    if st.session_state["industry"] and st.session_state["industry"] != "None":
+        filters["industry"] = st.session_state["industry"]
+    if st.session_state["country"] and st.session_state["country"] != "None":
+        filters["country"] = st.session_state["country"]
+    if st.session_state["location"].strip():
+        filters["location"] = st.session_state["location"].strip()
+    if st.session_state["last_updated"]:
+        filters["last_updated_gte"] = str(st.session_state["last_updated"])
 
+    st.session_state["filters"] = filters
     st.write("🧾 Applied Filters:", filters)
 
     # Payload mapping for debug
@@ -818,12 +868,13 @@ if submit:
         "last_updated_gte": "last updated gte",
     }
     payload = {mapping[k]: v for k, v in filters.items() if k in mapping}
+    st.session_state["payload"] = payload
     st.write("📦 Payload:", payload)
-
 
     with st.spinner("Querying Coresignal…"):
         try:
             companies = search_companies(filters)
+            st.session_state["companies"] = companies
             st.write(companies)
 
             # 🔁 Flatten nested lists of IDs
@@ -833,10 +884,19 @@ if submit:
                     flat_company_ids.extend(batch)
                 else:
                     flat_company_ids.append(batch)
+            st.session_state["flat_company_ids"] = flat_company_ids
             if flat_company_ids:
                 st.success(f"✅ Found {len(flat_company_ids)} companies.")
-                max_results = st.slider("maximum results", 1, len(flat_company_ids), len(flat_company_ids), 1)
-                reduced_list = flat_company_ids[:max_results] 
+                max_results = st.slider(
+                    "maximum results",
+                    1,
+                    len(flat_company_ids),
+                    len(flat_company_ids),
+                    1,
+                    key="max_results"
+                )
+                reduced_list = flat_company_ids[:max_results]
+                st.session_state["reduced_list"] = reduced_list
                 for idx, c in enumerate(reduced_list):
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -845,6 +905,7 @@ if submit:
                         if st.button("ℹ️ View Details", key=f"view_{idx}"):
                             try:
                                 company_detail = collect_company(str(c))
+                                st.session_state[f"company_detail_{c}"] = company_detail
                                 st.subheader(f"📄 Company ID {c} – Full Profile")
                                 st.json(company_detail)
                                 df = pd.DataFrame([company_detail])
@@ -858,4 +919,36 @@ if submit:
                 st.warning("No companies matched your filters.")
         except Exception as e:
             st.error(f"❌ Coresignal API error: {e}")
+
+# On rerun, restore results if present
+if "companies" in st.session_state and not submit:
+    companies = st.session_state["companies"]
+    st.write(companies)
+    flat_company_ids = st.session_state.get("flat_company_ids", [])
+    if flat_company_ids:
+        st.success(f"✅ Found {len(flat_company_ids)} companies.")
+        max_results = st.slider(
+            "maximum results",
+            1,
+            len(flat_company_ids),
+            len(flat_company_ids),
+            1,
+            key="max_results"
+        )
+        reduced_list = flat_company_ids[:max_results]
+        for idx, c in enumerate(reduced_list):
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.write(f"🆔 ID: {c}")
+            with col2:
+                if st.button("ℹ️ View Details", key=f"view_{idx}"):
+                    company_detail = st.session_state.get(f"company_detail_{c}")
+                    if company_detail:
+                        st.subheader(f"📄 Company ID {c} – Full Profile")
+                        st.json(company_detail)
+                        df = pd.DataFrame([company_detail])
+                        excel_file = f"company_{c}_profile.xlsx"
+                        df.to_excel(excel_file, index=False)
+                        with open(excel_file, "rb") as f:
+                            st.download_button("📥 Download Excel", f, file_name=excel_file)
 
