@@ -101,113 +101,78 @@ def search_people(company_name, locations, job_titles=None, seniorities=None, do
 
 # — Interface Streamlit —
 
-st.title("🔍 People search via Apollo for HubSpot")
+st.title("Contact Finder")
 
-# Step 1 – get the list of companies via an Excel file or manual input
+# Step 1 – get the list of company domains via an Excel file or manual input
+st.subheader("1️⃣ Import Company Domains")
 col1, col2 = st.columns(2)
 all_comps = []
 with col1:
-    uploaded_file = st.file_uploader("Upload Excel file with company data", type=["xlsx", "xls"])
+    uploaded_file = st.file_uploader("Upload Excel file with company domains", type=["xlsx", "xls"])
     if uploaded_file:
         df_excel = pd.read_excel(uploaded_file)
         
-        # Check available columns
-        available_columns = df_excel.columns.tolist()
-        company_columns = []
-        if "Company name" in available_columns:
-            company_columns.append("Company name")
-        if "Company Domain Name" in available_columns:
-            company_columns.append("Company Domain Name")
-        
-        if not company_columns:
-            st.error("Excel file must contain either 'Company name' or 'Company Domain Name' column.")
+        # Check for the required column
+        if "Company Domain Name" not in df_excel.columns:
+            st.error("Excel file must contain a 'Company Domain Name' column.")
+            st.info(f"Available columns: {', '.join(df_excel.columns.tolist())}")
         else:
-            # Let user choose which column to use
-            selected_column = st.radio(
-                "Choose data source:",
-                company_columns,
-                help="Select whether to use company names or domain names from your Excel file"
-            )
-            
-            # Load data from selected column
-            all_comps += [n for n in df_excel[selected_column].dropna().unique()]
-            
-            # Store the column type for later use
-            st.session_state["excel_column_type"] = selected_column
+            # Load data from the Company Domain Name column
+            all_comps += [n for n in df_excel["Company Domain Name"].dropna().unique()]
 with col2:
-    # Determine if user is using domains from Excel to adjust manual input
-    using_domains_excel = st.session_state.get("excel_column_type") == "Company Domain Name"
-    
-    if using_domains_excel:
-        manual_input_label = "Or enter company domains manually (one per line)"
-        manual_input_placeholder = "google.com\nmicrosoft.com\napple.com"
-        manual_input_help = "Enter domain names (without http:// or www.)"
-    else:
-        manual_input_label = "Or enter company names manually (one per line)"
-        manual_input_placeholder = "Company A\nCompany B\nCompany C"
-        manual_input_help = "Enter full company names"
-    
     manual_companies = st.text_area(
-        manual_input_label,
-        placeholder=manual_input_placeholder,
-        help=manual_input_help
+        "Or enter company domains manually (one per line)",
+        placeholder="google.com\nmicrosoft.com\napple.com",
+        help="Enter domain names (without http:// or www.)"
     )
     if manual_companies:
         all_comps += [n.strip() for n in manual_companies.split("\n") if n.strip()]
 # Remove duplicates and empty
 all_comps = list({n for n in all_comps if n})
 if not all_comps:
-    st.warning("Please upload an Excel file or enter company names manually.")
+    st.warning("Please upload an Excel file with company domains or enter them manually.")
     st.stop()
-# Determine if we're using domains or company names
-using_domains = st.session_state.get("excel_column_type") == "Company Domain Name"
-data_type = "domains" if using_domains else "companies"
 
-all_comps = [{"id": i, "name": n, "type": data_type} for i, n in enumerate(all_comps)]
+all_comps = [{"id": i, "name": n, "type": "domains"} for i, n in enumerate(all_comps)]
 
-st.info(f"📊 Total {data_type} loaded: {len(all_comps)}")
+st.info(f"📊 Total domains loaded: {len(all_comps)}")
 
-# Step 2 – select companies & filters
-select_all_label = f"Select All {data_type.title()}"
-select_all = st.checkbox(select_all_label)
+# Step 2 – select domains & filters
+st.subheader("2️⃣ Select Domains & Filters")
+select_all = st.checkbox("Select All Domains")
 
 if select_all:
     selected = [c["name"] for c in all_comps]
 else:
-    multiselect_label = f"Select {data_type}"
     selected = st.multiselect(
-        multiselect_label,
+        "Select domains",
         options=[c["name"] for c in all_comps],
         default=[]
     )
 if len(selected) > 20:
-    st.warning("You have selected more than 20 companies. This may take a while and could hit API rate limits.")
+    st.warning("You have selected more than 20 domains. This may take a while and could hit API rate limits.")
 
-job_titles_input = st.text_input(
-    "Job title filters (optional, up to 5), separated by ; (e.g. HR Director; Recruiter)"
-)
 locations_input = st.text_input(
-    "Location filters (1 to 2), separated by ; (e.g. London ; Paris)",
+    "Location (1 to 2), separated by ; (e.g. London ; Paris)",
 )
 seniorities = st.multiselect(
-    "Seniority filters (optional, select up to 2)",
+    "Seniority (optional, select up to 2)",
     options=[
         "owner", "founder", "c_suite", "partner", "vp", "head",
         "director", "manager", "senior", "entry", "intern"
     ],
     default=[]
 )
+job_titles_input = st.text_input(
+    "Job title (optional, up to 5), separated by ; (e.g. HR Director; Recruiter)"
+)
 
-if st.button("Search"):
+if st.button("Start Search"):
     job_titles = [j.strip() for j in job_titles_input.split(";") if j.strip()]
     locations = [l.strip() for l in locations_input.split(";") if l.strip()]
     
-    # Check what type of data we're using
-    using_domains = st.session_state.get("excel_column_type") == "Company Domain Name"
-    data_type = "domains" if using_domains else "companies"
-    
     if not selected or not locations:
-        st.error(f"Please select at least:\n• 1 {data_type[:-1]}\n• 1 location")
+        st.error("Please select at least:\n• 1 domain\n• 1 location")
     else:
         try:
             # Clear all previous results and cache
@@ -218,39 +183,17 @@ if st.button("Search"):
             total_found = 0
             progress = st.progress(0, text="Searching contacts...")
             
-            st.write("🔍 **Search Parameters:**")
-            if using_domains:
-                st.write(f"• Domains: {selected}")
-                st.write(f"• Job titles: {job_titles if job_titles else 'Any position'}")
-                st.write(f"• Locations: {locations}")
-                st.write(f"• Seniorities: {seniorities if seniorities else 'Any level'}")
-            else:
-                st.write(f"• Companies: {selected}")
-                st.write(f"• Job titles: {job_titles if job_titles else 'Any position'}")
-                st.write(f"• Locations: {locations}")
-                st.write(f"• Seniorities: {seniorities if seniorities else 'Any level'}")
-            
             for idx, item in enumerate(selected):
-                if using_domains:
-                    st.write(f"🔍 **Now searching domain: {item}**")
-                    # For domains, we search without specific company name
-                    people = search_people(
-                        company_name="",  # Empty company name when using domains
-                        locations=locations,
-                        job_titles=job_titles,
-                        seniorities=seniorities,
-                        domains=[item]
-                    )
-                    search_label = item  # Use domain as the label
-                else:
-                    st.write(f"🔍 **Now searching company: {item}**")
-                    people = search_people(
-                        company_name=item,
-                        locations=locations,
-                        job_titles=job_titles,
-                        seniorities=seniorities
-                    )
-                    search_label = item  # Use company name as the label
+                # st.write(f"🔍 **Now searching domain: {item}**")
+                # For domains, we search without specific company name
+                people = search_people(
+                    company_name="",  # Empty company name when using domains
+                    locations=locations,
+                    job_titles=job_titles,
+                    seniorities=seniorities,
+                    domains=[item]
+                )
+                search_label = item  # Use domain as the label
                 
                 try:
                     company_results = 0
@@ -275,21 +218,24 @@ if st.button("Search"):
                         if job_titles:
                             search_terms.append(f"titles: {', '.join(job_titles)}")
                         search_terms.append(f"locations: {', '.join(locations)}")
-                        if using_domains:
-                            search_terms.append(f"domain: {item}")
+                        search_terms.append(f"domain: {item}")
                         st.write(f"   📍 Search terms: {' | '.join(search_terms)}")
                         if seniorities:
                             st.write(f"   👥 Seniorities: {', '.join(seniorities)}")
                         
                 except Exception as e:
                     st.warning(f"Error searching {search_label}: {e}")
-                progress.progress((idx + 1) / len(selected), text=f"Searched {idx + 1}/{len(selected)} {data_type}")
+                progress.progress((idx + 1) / len(selected), text=f"Searched {idx + 1}/{len(selected)} domains")
                 time.sleep(0.2)  # Small delay to avoid rate limits
             
             progress.empty()
             st.success(f"Total people found: {total_found}")
         except Exception as e:
             st.error(f"Error during search: {e}")
+
+# Step 3 – Results and Export
+if st.session_state.get("results"):
+    st.subheader("3️⃣ Search Results")
 
 # Pagination for results
 def get_page(items, page, page_size):
@@ -301,15 +247,9 @@ if st.session_state.get("results"):
     data = st.session_state["results"]
     rows = []
     for p in data:
-        email = p.get("email") or (
-            next((e["email"] for e in p.get("contact_emails", []) if e.get("email_status") == "verified"), None)
-        )
-        if email == "email_not_unlocked@domain.com":
-            email = "Locked (enrich to see)"
         rows.append({
             "Name": p.get("name"),
             "Title": p.get("title"),
-            "Email": email,
             "Company": p.get("searched_company"),  # Use the company that was searched for
             "Location": p.get("present_raw_address") or f"{p.get('city')}, {p.get('country')}",
             "LinkedIn": p.get("linkedin_url")
@@ -317,21 +257,50 @@ if st.session_state.get("results"):
     # Pagination controls
     page_size = 10
     total_pages = (len(rows) - 1) // page_size + 1
-    page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1) - 1
+    
+    # Initialize page in session state if not exists
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = 1
+    
+    # Ensure current page is within valid range
+    if st.session_state.current_page > total_pages:
+        st.session_state.current_page = 1
+    
+    # Top pagination control
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
+    with col1:
+        if st.button("⬅️ Previous", key="prev_top", disabled=st.session_state.current_page <= 1):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col3:
+        top_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_top")
+        if top_page != st.session_state.current_page:
+            st.session_state.current_page = top_page
+            st.rerun()
+    with col5:
+        if st.button("Next ➡️", key="next_top", disabled=st.session_state.current_page >= total_pages):
+            st.session_state.current_page += 1
+            st.rerun()
+    
+    page = st.session_state.current_page - 1  # Convert to 0-based for indexing
     paged_rows = get_page(rows, page, page_size)
+    
+    # Show results count
+    start_idx = page * page_size + 1
+    end_idx = min((page + 1) * page_size, len(rows))
+    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
     for i, row in enumerate(paged_rows):
         col1, col2 = st.columns([5, 1])
         with col1:
+            linkedin_display = f"👤 [{row['LinkedIn']}]({row['LinkedIn']})" if row['LinkedIn'] else "👤 No LinkedIn profile"
             st.markdown(f"**{row['Name']}** – {row['Title']}  \n"
-                        f"📧 {row['Email']}  \n"
                         f"🏢 {row['Company']}  \n"
                         f"📍 {row['Location']}  \n"
-                        f"[LinkedIn]({row['LinkedIn']})" if row['LinkedIn'] else "")
+                        f"{linkedin_display}")
         with col2:
             if st.button("Export to HubSpot", key=f"export_{page}_{i}"):
                 try:
                     props = {
-                        "email": row["Email"] or "",
                         "firstname": row["Name"].split()[0] if row["Name"] else "",
                         "lastname": " ".join(row["Name"].split()[1:]) if row["Name"] and len(row["Name"].split()) > 1 else "",
                         "jobtitle": row["Title"] or "",
@@ -343,4 +312,24 @@ if st.session_state.get("results"):
                     st.success(f"{row['Name']} exported to HubSpot.")
                 except Exception as e:
                     st.error(f"Failed to export {row['Name']} to HubSpot: {e}")
+    
+    # Bottom pagination control
+    st.divider()
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
+    with col1:
+        if st.button("⬅️ Previous", key="prev_bottom", disabled=st.session_state.current_page <= 1):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col3:
+        bottom_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_bottom")
+        if bottom_page != st.session_state.current_page:
+            st.session_state.current_page = bottom_page
+            st.rerun()
+    with col5:
+        if st.button("Next ➡️", key="next_bottom", disabled=st.session_state.current_page >= total_pages):
+            st.session_state.current_page += 1
+            st.rerun()
+    
+    # Show pagination info at bottom too
+    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
             

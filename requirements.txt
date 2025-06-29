@@ -22,6 +22,7 @@ decorator==5.2.1
 defusedxml==0.7.1
 distro==1.9.0
 dotenv==0.9.9
+et_xmlfile==2.0.0
 executing==2.2.0
 fastjsonschema==2.21.1
 fqdn==1.5.1
@@ -67,6 +68,7 @@ notebook==7.4.2
 notebook_shim==0.2.4
 numpy==2.2.6
 openai==1.82.0
+openpyxl==3.1.5
 overrides==7.7.0
 packaging==24.2
 pandas==2.2.3
