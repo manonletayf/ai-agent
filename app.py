@@ -1,954 +1,428 @@
+import os
 import streamlit as st
-from core.coresignal_client import search_companies
-from utils.env_loader import load_environment
-from datetime import date
+import requests
+from dotenv import load_dotenv
 import pandas as pd
-from core.coresignal_collect import collect_company
+import time
+from urllib.parse import urlencode
 
-load_environment()
+load_dotenv()
+if "results" not in st.session_state:
+    st.session_state["results"] = []
+if "selected_contacts" not in st.session_state:
+    st.session_state["selected_contacts"] = []
 
-st.set_page_config(page_title="Company Search", layout="centered")
-st.title("🔎 Advanced Company Filter")
 
-# --- Session State Initialization ---
-def get_state(key, default):
-    if key not in st.session_state:
-        st.session_state[key] = default
-    return st.session_state[key]
-
-# --- Static filter lists
-company_sizes = [
-    "2-10 employees",
-    "11-50 employees",
-    "51-200 employees",
-    "201-500 employees",
-    "501-1,000 employees",
-    "1,001-5,000 employees",
-    "5,001-10,000 employees",
-    "5001-10,000 employees",
-    "10,001+ employees"
-]
-
-industries = [
-    "Real Estate",
-    "Design Services",
-    "Retail",
-    "Chemical Manufacturing",
-    "Broadcast Media Production and Distribution",
-    "Telecommunications",
-    "Retail Art Supplies",
-    "Wholesale Import and Export",
-    "Fine Art",
-    "Information Technology & Services",
-    "Advertising Services",
-    "Food and Beverage Services",
-    "Technology, Information and Internet",
-    "E-learning",
-    "Financial Services",
-    "Non-profit Organizations",
-    "Software Development",
-    "Computer Networking Products",
-    "Government Relations",
-    "Packaging & Containers",
-    "Education Administration Programs",
-    "Capital Markets",
-    "Manufacturing",
-    "Higher Education",
-    "Renewables & Environment",
-    "Retail Apparel and Fashion",
-    "Accounting",
-    "Construction",
-    "Law Practice",
-    "Business Consulting and Services",
-    "Alternative Medicine",
-    "Agriculture, Construction, Mining Machinery Manufacturing",
-    "Executive Offices",
-    "Restaurants",
-    "Online Audio and Video Media",
-    "International Trade and Development",
-    "Performing Arts",
-    "Management Consulting",
-    "Professional Training & Coaching",
-    "IT Services and IT Consulting",
-    "Environmental Services",
-    "Music",
-    "Food & Beverages",
-    "Hospitality",
-    "Internet",
-    "Wholesale",
-    "Oil and Gas",
-    "Design",
-    "Professional Training and Coaching",
-    "Investment Management",
-    "Apparel & Fashion",
-    "Book and Periodical Publishing",
-    "Information Services",
-    "Mining",
-    "Photography",
-    "Transportation/Trucking/Railroad",
-    "Appliances, Electrical, and Electronics Manufacturing",
-    "Furniture and Home Furnishings Manufacturing",
-    "Hospitals and Health Care",
-    "Entertainment Providers",
-    "Consumer Services",
-    "Food Production",
-    "Human Resources Services",
-    "Staffing and Recruiting",
-    "Machinery Manufacturing",
-    "Wellness and Fitness Services",
-    "Legal Services",
-    "Civil Engineering",
-    "Religious Institutions",
-    "Transportation, Logistics, Supply Chain and Storage",
-    "Public Relations and Communications Services",
-    "Sports",
-    "Events Services",
-    "Artists and Writers",
-    "Venture Capital and Private Equity Principals",
-    "Medical Equipment Manufacturing",
-    "Automotive",
-    "Consumer Electronics",
-    "Architecture and Planning",
-    "Insurance",
-    "Health, Wellness & Fitness",
-    "Market Research",
-    "Writing and Editing",
-    "Media Production",
-    "Musicians",
-    "Personal Care Product Manufacturing",
-    "Mental Health Care",
-    "International Trade & Development",
-    "Printing Services",
-    "Biotechnology Research",
-    "Motor Vehicle Manufacturing",
-    "Computer Hardware",
-    "Industrial Machinery Manufacturing",
-    "Biotechnology",
-    "Spectator Sports",
-    "Retail Luxury Goods and Jewelry",
-    "Movies, Videos, and Sound",
-    "Wine & Spirits",
-    "Philanthropic Fundraising Services",
-    "Medical Device",
-    "Plastics Manufacturing",
-    "Entertainment",
-    "Newspaper Publishing",
-    "Education",
-    "Travel Arrangements",
-    "Law Enforcement",
-    "Commercial Real Estate",
-    "Renewable Energy Semiconductor Manufacturing",
-    "Arts & Crafts",
-    "International Affairs",
-    "Banking",
-    "Industrial Automation",
-    "Dairy Product Manufacturing",
-    "Human Resources",
-    "Retail Office Equipment",
-    "Truck Transportation",
-    "Airlines and Aviation",
-    "Packaging and Containers Manufacturing",
-    "Defense & Space",
-    "Beverage Manufacturing",
-    "Graphic Design",
-    "Automation Machinery Manufacturing",
-    "Individual and Family Services",
-    "Pharmaceutical Manufacturing",
-    "Research",
-    "Business Supplies & Equipment",
-    "Farming",
-    "Hospital & Health Care",
-    "Medical Practices",
-    "Government Administration",
-    "Wholesale Building Materials",
-    "Consumer Goods",
-    "Security and Investigations",
-    "Furniture",
-    "Education Management",
-    "Pharmaceuticals",
-    "Government Relations Services",
-    "Oil & Energy",
-    "Public Safety",
-    "Fundraising",
-    "Facilities Services",
-    "Non-profit Organization Management",
-    "Venture Capital & Private Equity",
-    "Computer and Network Security",
-    "Translation and Localization",
-    "Primary and Secondary Education",
-    "Investment Advice",
-    "Gambling Facilities and Casinos",
-    "Online Media",
-    "Civic and Social Organizations",
-    "Mechanical Or Industrial Engineering",
-    "Semiconductors",
-    "Glass, Ceramics and Concrete Manufacturing",
-    "Glass, Ceramics & Concrete",
-    "Leisure, Travel & Tourism",
-    "Strategic Management Services",
-    "Research Services",
-    "Other",
-    "Utilities",
-    "Think Tanks",
-    "Writing & Editing",
-    "Import & Export",
-    "Gambling & Casinos",
-    "Veterinary",
-    "Translation & Localization",
-    "Defense and Space Manufacturing",
-    "Textile Manufacturing",
-    "Sporting Goods",
-    "Staffing & Recruiting",
-    "Aviation and Aerospace Component Manufacturing",
-    "Broadcast Media",
-    "Veterinary Services",
-    "E-Learning Providers",
-    "Sports Teams and Clubs",
-    "Food and Beverage Manufacturing",
-    "Recreational Facilities",
-    "Electrical & Electronic Manufacturing",
-    "Movies and Sound Recording",
-    "Judiciary",
-    "Food and Beverage Retail",
-    "Outsourcing and Offshoring Consulting",
-    "Paper and Forest Product Manufacturing",
-    "Logistics & Supply Chain",
-    "Investment Banking",
-    "Political Organizations",
-    "Computer Software",
-    "Animation",
-    "Maritime Transportation",
-    "Warehousing and Storage",
-    "Libraries",
-    "Leasing Non-residential Real Estate",
-    "Philanthropy",
-    "Sporting Goods Manufacturing",
-    "Luxury Goods & Jewelry",
-    "Maritime",
-    "Museums, Historical Sites, and Zoos",
-    "Ranching",
-    "Cosmetics",
-    "Computers and Electronics Manufacturing",
-    "Textiles",
-    "Building Materials",
-    "Civic & Social Organization",
-    "Aviation & Aerospace",
-    "Architecture & Planning",
-    "Alternative Dispute Resolution",
-    "Wireless Services",
-    "Computer Games",
-    "Freight and Package Transportation",
-    "Public Policy Offices",
-    "Publishing",
-    "Printing",
-    "Sports and Recreation Instruction",
-    "Fisheries",
-    "Nanotechnology Research",
-    "Building Construction",
-    "Public Relations & Communications",
-    "Program Development",
-    "Animation and Post-production",
-    "Armed Forces",
-    "Computer Hardware Manufacturing",
-    "Computer Networking",
-    "Paper & Forest Products",
-    "Security & Investigations",
-    "Computer & Network Security",
-    "Services for Renewable Energy",
-    "Chemicals",
-    "IT System Custom Software Development",
-    "Semiconductor Manufacturing",
-    "Operations Consulting",
-    "Professional Services",
-    "Marketing & Advertising",
-    "Tobacco Manufacturing",
-    "Warehousing",
-    "Executive Office",
-    "Machinery",
-    "Internet Marketplace Platforms",
-    "Outsourcing/Offshoring",
-    "Insurance Agencies and Brokerages",
-    "Marketing Services",
-    "Technology, Information and Media",
-    "Commercial and Industrial Machinery Maintenance",
-    "Railroad Equipment Manufacturing",
-    "Administration of Justice",
-    "Primary/Secondary Education",
-    "Security Systems Services",
-    "Solar Electric Power Generation",
-    "Internet Publishing",
-    "Political Organization",
-    "Legislative Offices",
-    "Retail Appliances, Electrical, and Electronic Equipment",
-    "Engineering Services",
-    "Medical Practice",
-    "Newspapers",
-    "Public Policy",
-    "Renewable Energy Power Generation",
-    "Motor Vehicle Parts Manufacturing",
-    "Media and Telecommunications",
-    "Individual & Family Services",
-    "Shipbuilding",
-    "Golf Courses and Country Clubs",
-    "Rail Transportation",
-    "Retail Groceries",
-    "Real Estate Agents and Brokers",
-    "Wholesale Motor Vehicles and Parts",
-    "Electric Power Generation",
-    "Wholesale Furniture and Home Furnishings",
-    "Vehicle Repair and Maintenance",
-    "Digital Accessibility Services",
-    "Recreational Facilities & Services",
-    "IT System Design Services",
-    "Retail Furniture and Home Furnishings",
-    "Health and Human Services",
-    "Mining & Metals",
-    "Retail Books and Printed News",
-    "Fabricated Metal Products",
-    "Book Publishing",
-    "Package/Freight Delivery",
-    "Leather Product Manufacturing",
-    "Dentists",
-    "Tobacco",
-    "Economic Programs",
-    "Military",
-    "Ground Passenger Transportation",
-    "Plastics",
-    "Dairy",
-    "Physicians",
-    "Space Research and Technology",
-    "Executive Search Services",
-    "Wholesale Paper Products",
-    "Repair and Maintenance",
-    "Personal Care Services",
-    "Community Services",
-    "Retail Motor Vehicles",
-    "Supermarkets",
-    "Wireless",
-    "Periodical Publishing",
-    "Plastics and Rubber Product Manufacturing",
-    "Retail Health and Personal Care Products",
-    "Data Infrastructure and Analytics",
-    "Interior Design",
-    "Bars, Taverns, and Nightclubs",
-    "Water, Waste, Steam, and Air Conditioning Services",
-    "Urban Transit Services",
-    "Zoos and Botanical Gardens",
-    "Nanotechnology",
-    "Airlines/Aviation",
-    "Railroad Manufacture",
-    "IT System Operations and Maintenance",
-    "Leasing Residential Real Estate",
-    "Fishery",
-    "Blogs",
-    "Museums & Institutions",
-    "Taxi and Limousine Services",
-    "Wind Electric Power Generation",
-    "Holding Companies",
-    "Motion Pictures & Film",
-    "Retail Building Materials and Garden Equipment",
-    "Medical and Diagnostic Laboratories",
-    "Retail Art Dealers",
-    "Electric Lighting Equipment Manufacturing",
-    "Social Networking Platforms",
-    "Commercial and Industrial Equipment Rental",
-    "Language Schools",
-    "Animal Feed Manufacturing",
-    "Funds and Trusts",
-    "Business Content",
-    "Theater Companies",
-    "Internet News",
-    "Services for the Elderly and Disabled",
-    "Real Estate and Equipment Rental Services",
-    "Skiing Facilities",
-    "IT System Data Services",
-    "Pet Services",
-    "Waste Collection",
-    "Forestry and Logging",
-    "Data Security Software Products",
-    "Landscaping Services",
-    "Architectural and Structural Metal Manufacturing",
-    "Embedded Software Products",
-    "Baked Goods Manufacturing",
-    "Trusts and Estates",
-    "Wholesale Computer Equipment",
-    "Soap and Cleaning Product Manufacturing",
-    "Wholesale Drugs and Sundries",
-    "Blockchain Services",
-    "Metal Treatments",
-    "Public Health",
-    "Industry Associations",
-    "Transportation Equipment Manufacturing",
-    "Metalworking Machinery Manufacturing",
-    "Primary Metal Manufacturing",
-    "Hotels and Motels",
-    "Hydroelectric Power Generation",
-    "Transportation Programs",
-    "Housing and Community Development",
-    "Specialty Trade Contractors",
-    "Chiropractors",
-    "Conservation Programs",
-    "Biomass Electric Power Generation",
-    "Bed-and-Breakfasts, Hostels, Homestays",
-    "Physical, Occupational and Speech Therapists",
-    "Building Structure and Exterior Contractors",
-    "Online and Mail Order Retail",
-    "Communications Equipment Manufacturing",
-    "Fashion Accessories Manufacturing",
-    "Wholesale Appliances, Electrical, and Electronics",
-    "Wholesale Alcoholic Beverages",
-    "Office Furniture and Fixtures Manufacturing",
-    "Nursing Homes and Residential Care Facilities",
-    "Farming, Ranching, Forestry",
-    "Business Intelligence Platforms",
-    "Professional Organizations",
-    "Fire Protection",
-    "Electrical Equipment Manufacturing",
-    "HVAC and Refrigeration Equipment Manufacturing",
-    "Measuring and Control Instrument Manufacturing",
-    "Emergency and Relief Services",
-    "Retail Recyclable Materials & Used Merchandise",
-    "Vocational Rehabilitation Services",
-    "Wholesale Food and Beverage",
-    "Wholesale Metals and Minerals",
-    "Spring and Wire Product Manufacturing",
-    "Wholesale Hardware, Plumbing, Heating Equipment",
-    "Accessible Architecture and Design",
-    "Nonmetallic Mineral Mining",
-    "Glass Product Manufacturing",
-    "Subdivision of Land",
-    "Museums",
-    "Accommodation and Food Services",
-    "Wholesale Machinery",
-    "Wineries",
-    "Electric Power Transmission, Control, and Distribution",
-    "Electronic and Precision Equipment Maintenance",
-    "Wholesale Luxury Goods and Jewelry",
-    "Building Equipment Contractors",
-    "Administrative and Support Services",
-    "Hospitals",
-    "Artificial Rubber and Synthetic Fiber Manufacturing",
-    "Environmental Quality Programs",
-    "Wholesale Recyclable Materials",
-    "Commercial and Service Industry Machinery Manufacturing",
-    "Agricultural Chemical Manufacturing",
-    "Wood Product Manufacturing",
-    "Nuclear Electric Power Generation",
-    "Residential Building Construction",
-    "Surveying and Mapping Services",
-    "Household Appliance Manufacturing",
-    "Sound Recording",
-    "Wholesale Chemical and Allied Products",
-    "Footwear Manufacturing",
-    "Meat Products Manufacturing",
-    "Waste Treatment and Disposal",
-    "Equipment Rental Services",
-    "Shuttles and Special Needs Transportation Services",
-    "Cosmetology and Barber Schools",
-    "Security Guards and Patrol Services",
-    "Technical and Vocational Training",
-    "IT System Training and Support",
-    "Legislative Office",
-    "Home Health Care Services",
-    "Wholesale Raw Farm Products",
-    "Climate Data and Analytics",
-    "Mobile Computing Software Products",
-    "Apparel Manufacturing",
-    "Rubber Products Manufacturing",
-    "Mobile Gaming Apps",
-    "Mattress and Blinds Manufacturing",
-    "Audio and Video Equipment Manufacturing",
-    "Retail Musical Instruments",
-    "Sugar and Confectionery Product Manufacturing",
-    "Wholesale Petroleum and Petroleum Products",
-    "Horticulture",
-    "Paint, Coating, and Adhesive Manufacturing",
-    "Retail Florists",
-    "Highway, Street, and Bridge Construction",
-    "Desktop Computing Software Products",
-    "Performing Arts and Spectator Sports",
-    "Insurance and Employee Benefit Funds",
-    "Community Development and Urban Planning",
-    "Renewable Energy Equipment Manufacturing",
-    "Telephone Call Centers",
-    "IT System Testing and Evaluation",
-    "Climate Technology Product Manufacturing",
-    "Construction Hardware Manufacturing",
-    "Chemical Raw Materials Manufacturing",
-    "Water Supply and Irrigation Systems",
-    "Distilleries",
-    "Metal Ore Mining",
-    "Wholesale Photography Equipment and Supplies",
-    "Child Day Care Services",
-    "Dance Companies",
-    "Courts of Law",
-    "Utilities Administration",
-    "Radio and Television Broadcasting",
-    "Building Finishing Contractors",
-    "Sheet Music Publishing",
-    "Geothermal Electric Power Generation",
-    "Retail Gasoline",
-    "Loan Brokers",
-    "Historical Sites",
-    "Air, Water, and Waste Program Management",
-    "Utility System Construction",
-    "Collection Agencies",
-    "Pipeline Transportation",
-    "Accessible Hardware Manufacturing",
-    "Janitorial Services",
-    "Caterers",
-    "Retail Pharmacies",
-    "Retail Office Supplies and Gifts",
-    "Household Services",
-    "Nonresidential Building Construction",
-    "Alternative Fuel Vehicle Manufacturing",
-    "Engines and Power Transmission Equipment Manufacturing",
-    "Mobile Food Services",
-    "Satellite Telecommunications",
-    "Sightseeing Transportation",
-    "Metal Valve, Ball, and Roller Manufacturing",
-    "Amusement Parks and Arcades",
-    "Laundry and Drycleaning Services",
-    "Wholesale Footwear",
-    "Securities and Commodity Exchanges",
-    "Fine Arts Schools",
-    "Turned Products and Fastener Manufacturing",
-    "Oil, Gas, and Mining",
-    "Robot Manufacturing",
-    "Telecommunications Carriers",
-    "Seafood Product Manufacturing",
-    "Office Administration",
-    "Optometrists",
-    "Wholesale Apparel and Sewing Supplies",
-    "Oil Extraction",
-    "Boilers, Tanks, and Shipping Container Manufacturing",
-    "Robotics Engineering",
-    "Housing Programs",
-    "Military and International Affairs",
-    "Cable and Satellite Programming",
-    "Clay and Refractory Products Manufacturing",
-    "Insurance Carriers",
-    "Flight Training",
-    "Fossil Fuel Electric Power Generation",
-    "Household and Institutional Furniture Manufacturing",
-    "Interurban and Rural Bus Services",
-    "Ranching and Fisheries",
-    "Natural Gas Extraction",
-    "Postal Services",
-    "Reupholstery and Furniture Repair",
-    "Temporary Help Services",
-    "Consumer Goods Rental",
-    "Steam and Air-Conditioning Supply",
-    "Coal Mining",
-    "Ambulance Services",
-    "Women's Handbag Manufacturing",
-    "Pension Funds",
-    "Fruit and Vegetable Preserves Manufacturing",
-    "Credit Intermediation",
-    "Regenerative Design",
-    "Circuses and Magic Shows",
-    "Magnetic and Optical Media Manufacturing",
-    "Claims Adjusting, Actuarial Services",
-    "Oil and Coal Product Manufacturing",
-    "IT System Installation and Disposal",
-    "Natural Gas Distribution",
-    "Personal and Laundry Services",
-    "Footwear and Leather Goods Repair",
-    "Correctional Institutions",
-    "Breweries",
-    "Mobile Games",
-    "Racetracks",
-    "Outpatient Care Centers",
-    "Abrasives and Nonmetallic Minerals Manufacturing",
-    "School and Employee Bus Services",
-    "Public Assistance Programs",
-    "Savings Institutions",
-    "Family Planning Centers",
-    "Cutlery and Handtool Manufacturing",
-    "Lime and Gypsum Products Manufacturing",
-    "Secretarial Schools",
-    "null",
-    "Smart Meter Manufacturing",
-    "Fuel Cell Manufacturing"
-]
-
-countries = [
-    "Afghanistan",
-    "Albania",
-    "Algeria",
-    "Andorra",
-    "Angola",
-    "Antigua and Barbuda",
-    "Argentina",
-    "Armenia",
-    "Australia",
-    "Austria",
-    "Azerbaijan",
-    "Åland",
-    "Bahamas",
-    "Bahrain",
-    "Bangladesh",
-    "Barbados",
-    "Belarus",
-    "Belgium",
-    "Belize",
-    "Benin",
-    "Bhutan",
-    "Bolivia",
-    "Bonaire, Sint Eustatius, and Saba",
-    "Bosnia and Herzegovina",
-    "Botswana",
-    "Brazil",
-    "Brunei",
-    "Bulgaria",
-    "Burkina Faso",
-    "Burundi",
-    "Cabo Verde",
-    "Cambodia",
-    "Cameroon",
-    "Canada",
-    "Central African Republic",
-    "Chad",
-    "Chile",
-    "China",
-    "Cocos (Keeling) Islands",
-    "Colombia",
-    "Comoros",
-    "Congo",
-    "Costa Rica",
-    "Côte d'Ivoire",
-    "Croatia",
-    "Cuba",
-    "Cyprus",
-    "Czechia",
-    "Democratic Republic of the Congo",
-    "Denmark",
-    "Djibouti",
-    "Dominica",
-    "Dominican Republic",
-    "Ecuador",
-    "Egypt",
-    "El Salvador",
-    "Equatorial Guinea",
-    "Eritrea",
-    "Estonia",
-    "Eswatini",
-    "Ethiopia",
-    "Fiji",
-    "Finland",
-    "France",
-    "Gabon",
-    "Gambia",
-    "Georgia",
-    "Germany",
-    "Ghana",
-    "Greece",
-    "Grenada",
-    "Guatemala",
-    "Guinea",
-    "Guinea-Bissau",
-    "Guyana",
-    "Haiti",
-    "Heard and McDonald Islands",
-    "Holy See",
-    "Honduras",
-    "Hong Kong",
-    "Hungary",
-    "Iceland",
-    "India",
-    "Indonesia",
-    "Iran",
-    "Iraq",
-    "Ireland",
-    "Israel",
-    "Italy",
-    "Jamaica",
-    "Japan",
-    "Jersey",
-    "Jordan",
-    "Kazakhstan",
-    "Kenya",
-    "Kiribati",
-    "Kosovo",
-    "Kuwait",
-    "Kyrgyzstan",
-    "Laos",
-    "Latvia",
-    "Lebanon",
-    "Lesotho",
-    "Liberia",
-    "Libya",
-    "Liechtenstein",
-    "Lithuania",
-    "Luxembourg",
-    "Madagascar",
-    "Malawi",
-    "Malaysia",
-    "Maldives",
-    "Mali",
-    "Malta",
-    "Marshall Islands",
-    "Mauritania",
-    "Mauritius",
-    "Mexico",
-    "Micronesia",
-    "Moldova",
-    "Monaco",
-    "Mongolia",
-    "Montenegro",
-    "Morocco",
-    "Mozambique",
-    "Myanmar",
-    "Namibia",
-    "Nauru",
-    "Nepal",
-    "Netherlands",
-    "New Zealand",
-    "Nicaragua",
-    "Niger",
-    "Nigeria",
-    "North Korea",
-    "North Macedonia",
-    "Norway",
-    "Oman",
-    "Other",
-    "Pakistan",
-    "Palau",
-    "Palestine State",
-    "Panama",
-    "Papua New Guinea",
-    "Paraguay",
-    "Peru",
-    "Philippines",
-    "Poland",
-    "Portugal",
-    "Qatar",
-    "Romania",
-    "Russia",
-    "Rwanda",
-    "Saint Kitts and Nevis",
-    "Saint Lucia",
-    "Saint Pierre and Miquelon",
-    "Saint Vincent and the Grenadines",
-    "Samoa",
-    "San Marino",
-    "Sao Tome and Principe",
-    "Saudi Arabia",
-    "Senegal",
-    "Serbia",
-    "Seychelles",
-    "Sierra Leone",
-    "Singapore",
-    "Slovakia",
-    "Slovenia",
-    "Solomon Islands",
-    "Somalia",
-    "South Africa",
-    "South Georgia and South Sandwich Islands",
-    "South Korea",
-    "South Sudan",
-    "Spain",
-    "Sri Lanka",
-    "Sudan",
-    "Suriname",
-    "Svalbard and Jan Mayen",
-    "Sweden",
-    "Switzerland",
-    "Syria",
-    "Taiwan",
-    "Tajikistan",
-    "Tanzania",
-    "Thailand",
-    "Timor-Leste",
-    "Togo",
-    "Tonga",
-    "Trinidad and Tobago",
-    "Tunisia",
-    "Turkey",
-    "Turkmenistan",
-    "Tuvalu",
-    "U.S. Outlying Islands",
-    "Uganda",
-    "Ukraine",
-    "United Arab Emirates",
-    "United Kingdom",
-    "United States",
-    "Uruguay",
-    "Uzbekistan",
-    "Vanuatu",
-    "Venezuela",
-    "Vietnam",
-    "Wallis and Futuna",
-    "Yemen",
-    "Zambia",
-    "Zimbabwe"
-]
-
-# --- Employees count filter
-employees_count_option = st.radio(
-    "👷 Employees count filter",
-    ["Ignore", "Specify"],
-    index=get_state("employees_count_option_index", 0),
-    key="employees_count_option"
-)
-st.session_state["employees_count_option_index"] = ["Ignore", "Specify"].index(st.session_state["employees_count_option"])
-
-employees_count_gte = None
-if st.session_state["employees_count_option"] == "Specify":
-    employees_count_gte = st.number_input(
-        "Employees count ≥",
-        min_value=0,
-        value=get_state("employees_count_gte", 100),
-        key="employees_count_gte"
-    )
-
-# --- UI Form
-with st.form("filters_form"):
-    size = st.selectbox(
-        "👥 Company Size",
-        ["None"] + company_sizes,
-        index=get_state("size_index", 0),
-        key="size"
-    )
-    st.session_state["size_index"] = (["None"] + company_sizes).index(st.session_state["size"])
-
-    industry = st.selectbox(
-        "🏭 Industry",
-        ["None"] + industries,
-        index=get_state("industry_index", 0),
-        key="industry"
-    )
-    st.session_state["industry_index"] = (["None"] + industries).index(st.session_state["industry"])
-
-    country = st.selectbox(
-        "🌍 Country",
-        ["None"] + countries,
-        index=get_state("country_index", 0),
-        key="country"
-    )
-    st.session_state["country_index"] = (["None"] + countries).index(st.session_state["country"])
-
-    location = st.text_input(
-        "📍 Location (city or region)",
-        get_state("location", ""),
-        key="location"
-    )
-    last_updated = st.date_input(
-        "🗓️ Last updated ≥",
-        value=get_state("last_updated", None),
-        key="last_updated"
-    )
-    submit = st.form_submit_button("🔍 Search")
-
-if submit:
-    filters = {}
-    if st.session_state["size"] and st.session_state["size"] != "None":
-        filters["size"] = st.session_state["size"]
-    if employees_count_gte is not None and employees_count_gte > 0:
-        filters["employees_count_gte"] = employees_count_gte
-    if st.session_state["industry"] and st.session_state["industry"] != "None":
-        filters["industry"] = st.session_state["industry"]
-    if st.session_state["country"] and st.session_state["country"] != "None":
-        filters["country"] = st.session_state["country"]
-    if st.session_state["location"].strip():
-        filters["location"] = st.session_state["location"].strip()
-    if st.session_state["last_updated"]:
-        filters["last_updated_gte"] = str(st.session_state["last_updated"])
-
-    st.session_state["filters"] = filters
-    st.write("🧾 Applied Filters:", filters)
-
-    # Payload mapping for debug
-    mapping = {
-        "size": "size",
-        "employees_count_gte": "employees_count_gte",
-        "industry": "industry",
-        "country": "country",
-        "location": "location",
-        "last_updated_gte": "last updated gte",
+def enrich_contact_email(person_id):
+    """Enrich contact with email using Apollo API"""
+    if not person_id:
+        return None
+        
+    url = f"https://api.apollo.io/api/v1/people/match?id={person_id}"
+    headers = {
+        "accept": "application/json",
+        "Cache-Control": "no-cache",
+        "Content-Type": "application/json",
+        "x-api-key": os.getenv("APOLLO_API_KEY")
     }
-    payload = {mapping[k]: v for k, v in filters.items() if k in mapping}
-    st.session_state["payload"] = payload
-    st.write("📦 Payload:", payload)
+    
+    try:
+        print(f"🔍 Enriching contact ID: {person_id}")
+        response = requests.post(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        
+        email = data.get("person", {}).get("email")
+        print(f"📧 Email found: {email if email else 'No email available'}")
+        return email
+        
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Failed to enrich contact {person_id}: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Error processing enrichment response for {person_id}: {e}")
+        return None
 
-    with st.spinner("Querying Coresignal…"):
+
+def search_people(company_name, locations, job_titles=None, seniorities=None, domains=None, per_page=50, page=1):
+    # Build query parameters for Apollo API
+    params = []
+    if job_titles:  # Only add job titles if provided
+        for title in job_titles:
+            params.append(("person_titles[]", title))
+        params.append(("include_similar_titles", "true"))
+    for loc in locations:
+        params.append(("person_locations[]", loc))
+    if seniorities:
+        for s in seniorities:
+            params.append(("person_seniorities[]", s))
+    if domains:
+        for d in domains:
+            params.append(("q_organization_domains_list[]", d))
+    if company_name:  # Only add company name if it's not empty
+        params.append(("q_organization_names[]", company_name))
+    params.append(("contact_email_status[]", "verified"))
+    params.append(("per_page", str(per_page)))
+    params.append(("page", str(page)))
+    search_type = "DOMAIN" if domains else "COMPANY"
+    search_value = domains[0] if domains else company_name
+    print(f"\n🔍 === SEARCHING FOR {search_type}: {search_value} ===")
+    print(f"📍 Job titles: {job_titles if job_titles else 'Any position'}")
+    print(f"🌍 Locations: {locations}")
+    print(f"👥 Seniorities: {seniorities if seniorities else 'Any level'}")
+    if domains:
+        print(f"🌐 Domains: {domains}")
+    
+    # Show the exact parameters being sent
+    print(f"📋 URL Parameters:")
+    for param_name, param_value in params:
+        print(f"   {param_name}: {param_value}")
+    
+    url = f"https://api.apollo.io/api/v1/mixed_people/search?{urlencode(params)}"
+    headers = {
+        "accept": "application/json",
+        "Cache-Control": "no-cache",
+        "Content-Type": "application/json",
+        "x-api-key": os.getenv("APOLLO_API_KEY")
+    }
+    
+    try:
+        
+        api_key = os.getenv('APOLLO_API_KEY')
+        print(f"🔑 API Key present: {'Yes' if api_key else 'No'}")
+        print(f"🔑 API Key (first 10 chars): {api_key[:10] + '...' if api_key else 'None'}")
+        print(f"🌐 Request URL: {url}")
+        
+        resp = requests.post(url, headers=headers)
+        print(f"📊 HTTP Status: {resp.status_code}")
+        
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # Print specific info about people returned
+        people = data.get("people", [])
+        total_results = data.get("total_results", 0)
+        
+        print(f"👥 People in response: {len(people)}")
+        print(f"📈 Total results available: {total_results}")
+        
+        # Log the first person's complete details for debugging
+        if people:
+            first_person = people[0]
+            print(f"🔍 First person returned:")
+            print(f"   ID: {first_person.get('id', 'N/A')}")
+            print(f"   Name: {first_person.get('name', 'N/A')}")
+            print(f"   Company: {first_person.get('organization_name', 'N/A')}")
+            print(f"   Title: {first_person.get('title', 'N/A')}")
+            print(f"   Location: {first_person.get('present_raw_address', 'N/A')}")
+            print(f"\n📋 COMPLETE FIRST PERSON DATA:")
+            print(f"{first_person}")
+            print("=" * 80)
+        
+        return people
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Request failed for {company_name}: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"📊 Error status: {e.response.status_code}")
+            print(f"📋 Error response: {e.response.text}")
+        return []
+    except Exception as e:
+        print(f"❌ Error processing response for {company_name}: {e}")
+        return []
+
+
+
+# — Interface Streamlit —
+
+st.title("Contact Finder")
+
+# Step 1 – get the list of company domains via an Excel file or manual input
+st.subheader("1️⃣ Import Company Domains")
+col1, col2 = st.columns(2)
+all_comps = []
+with col1:
+    uploaded_file = st.file_uploader("Upload Excel file with company domains", type=["xlsx", "xls"])
+    if uploaded_file:
+        df_excel = pd.read_excel(uploaded_file)
+        
+        # Check for the required column
+        if "Company Domain Name" not in df_excel.columns:
+            st.error("Excel file must contain a 'Company Domain Name' column.")
+            st.info(f"Available columns: {', '.join(df_excel.columns.tolist())}")
+        else:
+            # Load data from the Company Domain Name column
+            all_comps += [n for n in df_excel["Company Domain Name"].dropna().unique()]
+with col2:
+    manual_companies = st.text_area(
+        "Or enter company domains manually (one per line)",
+        placeholder="google.com\nmicrosoft.com\napple.com",
+        help="Enter domain names (without http:// or www.)"
+    )
+    if manual_companies:
+        all_comps += [n.strip() for n in manual_companies.split("\n") if n.strip()]
+# Remove duplicates and empty
+all_comps = list({n for n in all_comps if n})
+if not all_comps:
+    st.warning("Please upload an Excel file with company domains or enter them manually.")
+    st.stop()
+
+all_comps = [{"id": i, "name": n, "type": "domains"} for i, n in enumerate(all_comps)]
+
+st.info(f"📊 Total domains loaded: {len(all_comps)}")
+
+# Step 2 – select domains & filters
+st.subheader("2️⃣ Select Domains & Filters")
+select_all = st.checkbox("Select All Domains")
+
+if select_all:
+    selected = [c["name"] for c in all_comps]
+else:
+    selected = st.multiselect(
+        "Select domains",
+        options=[c["name"] for c in all_comps],
+        default=[]
+    )
+if len(selected) > 20:
+    st.warning("You have selected more than 20 domains. This may take a while and could hit API rate limits.")
+
+locations_input = st.text_input(
+    "Location (1 to 2), separated by ; (e.g. London ; Paris)",
+)
+seniorities = st.multiselect(
+    "Seniority (optional, select up to 2)",
+    options=[
+        "owner", "founder", "c_suite", "partner", "vp", "head",
+        "director", "manager", "senior", "entry", "intern"
+    ],
+    default=[]
+)
+job_titles_input = st.text_input(
+    "Job title (optional, up to 5), separated by ; (e.g. HR Director; Recruiter)"
+)
+
+if st.button("Start Search"):
+    job_titles = [j.strip() for j in job_titles_input.split(";") if j.strip()]
+    locations = [l.strip() for l in locations_input.split(";") if l.strip()]
+    
+    if not selected or not locations:
+        st.error("Please select at least:\n• 1 domain\n• 1 location")
+    else:
         try:
-            companies = search_companies(filters)
-            st.session_state["companies"] = companies
-            st.write(companies)
-
-            # 🔁 Flatten nested lists of IDs
-            flat_company_ids = []
-            for batch in companies:
-                if isinstance(batch, list):
-                    flat_company_ids.extend(batch)
-                else:
-                    flat_company_ids.append(batch)
-            st.session_state["flat_company_ids"] = flat_company_ids
-            if flat_company_ids:
-                st.success(f"✅ Found {len(flat_company_ids)} companies.")
-                max_results = st.slider(
-                    "maximum results",
-                    1,
-                    len(flat_company_ids),
-                    len(flat_company_ids),
-                    1,
-                    key="max_results"
+            # Clear all previous results and cache
+            st.session_state["results"] = []  # Reset stored results
+            if "search_cache" in st.session_state:
+                del st.session_state["search_cache"]
+            
+            total_found = 0
+            progress = st.progress(0, text="Searching contacts...")
+            
+            for idx, item in enumerate(selected):
+                # st.write(f"🔍 **Now searching domain: {item}**")
+                # For domains, we search without specific company name
+                people = search_people(
+                    company_name="",  # Empty company name when using domains
+                    locations=locations,
+                    job_titles=job_titles,
+                    seniorities=seniorities,
+                    domains=[item]
                 )
-                reduced_list = flat_company_ids[:max_results]
-                st.session_state["reduced_list"] = reduced_list
-                for idx, c in enumerate(reduced_list):
-                    col1, col2 = st.columns([2, 1])
-                    with col1:
-                        st.write(f"🆔 ID: {c}")
-                    with col2:
-                        if st.button("ℹ️ View Details", key=f"view_{idx}"):
-                            try:
-                                company_detail = collect_company(str(c))
-                                st.session_state[f"company_detail_{c}"] = company_detail
-                                st.subheader(f"📄 Company ID {c} – Full Profile")
-                                st.json(company_detail)
-                                df = pd.DataFrame([company_detail])
-                                excel_file = f"company_{c}_profile.xlsx"
-                                df.to_excel(excel_file, index=False)
-                                with open(excel_file, "rb") as f:
-                                    st.download_button("📥 Download Excel", f, file_name=excel_file)
-                            except Exception as e:
-                                st.error(f"❌ Failed to fetch company data: {e}")
-            else:
-                st.warning("No companies matched your filters.")
+                search_label = item  # Use domain as the label
+                
+                try:
+                    company_results = 0
+                    people_from_api = len(people)  # Store original count
+                    
+                    for p in people:
+                        # Add the searched item (company or domain) to each person's data
+                        p["searched_company"] = search_label
+                        st.session_state["results"].append(p)
+                        company_results += 1
+                        total_found += 1
+                    
+                    # Debug info
+                    if company_results > 0:
+                        st.write(f"✅ {search_label}: Found {company_results} people")
+                    else:
+                        st.write(f"❌ {search_label}: No people found")
+                        
+                        # Additional debugging for failed searches
+                        st.write(f"   🔍 API returned {people_from_api} people for {search_label}")
+                        search_terms = []
+                        if job_titles:
+                            search_terms.append(f"titles: {', '.join(job_titles)}")
+                        search_terms.append(f"locations: {', '.join(locations)}")
+                        search_terms.append(f"domain: {item}")
+                        st.write(f"   📍 Search terms: {' | '.join(search_terms)}")
+                        if seniorities:
+                            st.write(f"   👥 Seniorities: {', '.join(seniorities)}")
+                        
+                except Exception as e:
+                    st.warning(f"Error searching {search_label}: {e}")
+                progress.progress((idx + 1) / len(selected), text=f"Searched {idx + 1}/{len(selected)} domains")
+                time.sleep(0.2)  # Small delay to avoid rate limits
+            
+            progress.empty()
+            st.success(f"Total people found: {total_found}")
         except Exception as e:
-            st.error(f"❌ Coresignal API error: {e}")
+            st.error(f"Error during search: {e}")
 
-# On rerun, restore results if present
-if "companies" in st.session_state and not submit:
-    companies = st.session_state["companies"]
-    st.write(companies)
-    flat_company_ids = st.session_state.get("flat_company_ids", [])
-    if flat_company_ids:
-        st.success(f"✅ Found {len(flat_company_ids)} companies.")
-        max_results = st.slider(
-            "maximum results",
-            1,
-            len(flat_company_ids),
-            len(flat_company_ids),
-            1,
-            key="max_results"
+# Step 3 – Results and Export
+if st.session_state.get("results"):
+    st.subheader("3️⃣ Search Results")
+
+# Pagination for results
+def get_page(items, page, page_size):
+    start = page * page_size
+    end = start + page_size
+    return items[start:end]
+
+if st.session_state.get("results"):
+    data = st.session_state["results"]
+    rows = []
+    for p in data:
+        rows.append({
+            "Name": p.get("name"),
+            "Title": p.get("title"),
+            "Company": p.get("searched_company"),  # Use the company that was searched for
+            "Location": p.get("present_raw_address") or f"{p.get('city')}, {p.get('country')}",
+            "LinkedIn": p.get("linkedin_url"),
+            "ID": p.get("id")  # Keep Apollo API ID for enrichment
+        })
+    # Pagination controls
+    page_size = 10
+    total_pages = (len(rows) - 1) // page_size + 1
+    
+    # Initialize page in session state if not exists
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = 1
+    
+    # Ensure current page is within valid range
+    if st.session_state.current_page > total_pages:
+        st.session_state.current_page = 1
+    
+    # Top pagination control
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
+    with col1:
+        if st.button("⬅️ Previous", key="prev_top", disabled=st.session_state.current_page <= 1):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col3:
+        top_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_top")
+        if top_page != st.session_state.current_page:
+            st.session_state.current_page = top_page
+            st.rerun()
+    with col5:
+        if st.button("Next ➡️", key="next_top", disabled=st.session_state.current_page >= total_pages):
+            st.session_state.current_page += 1
+            st.rerun()
+    
+    page = st.session_state.current_page - 1  # Convert to 0-based for indexing
+    paged_rows = get_page(rows, page, page_size)
+    
+    # Show results count
+    start_idx = page * page_size + 1
+    end_idx = min((page + 1) * page_size, len(rows))
+    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
+    for i, row in enumerate(paged_rows):
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            linkedin_display = f"👤 [LinkedIn]({row['LinkedIn']})" if row['LinkedIn'] else "👤 No LinkedIn profile"
+            st.markdown(f"**{row['Name']}** – {row['Title']}  \n"
+                        f"🏢 {row['Company']}  \n"
+                        f"📍 {row['Location']}  \n"
+                        f"{linkedin_display}")
+        with col2:
+            # Check if this contact is already selected
+            contact_id = f"{row['Name']}_{row['Company']}_{row['Title']}"
+            is_selected = any(c.get('contact_id') == contact_id for c in st.session_state["selected_contacts"])
+            
+            if is_selected:
+                if st.button("✅ Selected", key=f"selected_{page}_{i}", disabled=True):
+                    pass
+            else:
+                if st.button("Select and enrich", key=f"select_{page}_{i}"):
+                    # Show enrichment progress
+                    with st.spinner(f"Enriching {row['Name']}..."):
+                        # Enrich contact with email
+                        email = enrich_contact_email(row["ID"])
+                    
+                    # Add contact to selected list
+                    contact_data = {
+                        "contact_id": contact_id,
+                        "ID": row["ID"],  # Apollo API ID for enrichment
+                        "Name": row["Name"],
+                        "Title": row["Title"], 
+                        "Company": row["Company"],
+                        "Location": row["Location"],
+                        "LinkedIn": row["LinkedIn"],
+                        "Email": email if email else "Not available"
+                    }
+                    st.session_state["selected_contacts"].append(contact_data)
+                    
+                    if email:
+                        st.success(f"{row['Name']} selected! Email: {email}")
+                    else:
+                        st.success(f"{row['Name']} selected! (No email found)")
+                    st.rerun()
+    
+    # Bottom pagination control
+    st.divider()
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
+    with col1:
+        if st.button("⬅️ Previous", key="prev_bottom", disabled=st.session_state.current_page <= 1):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col3:
+        bottom_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_bottom")
+        if bottom_page != st.session_state.current_page:
+            st.session_state.current_page = bottom_page
+            st.rerun()
+    with col5:
+        if st.button("Next ➡️", key="next_bottom", disabled=st.session_state.current_page >= total_pages):
+            st.session_state.current_page += 1
+            st.rerun()
+    
+    # Show pagination info at bottom too
+    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
+
+# Step 4 - Selected Contacts & Export
+if st.session_state.get("selected_contacts"):
+    st.subheader("4️⃣ Selected Contacts")
+    
+    # Show count and clear button
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.write(f"📋 **{len(st.session_state['selected_contacts'])} contacts selected**")
+    with col2:
+        if st.button("Clear All", type="secondary"):
+            st.session_state["selected_contacts"] = []
+            st.success("All selections cleared!")
+            st.rerun()
+    
+    # Display selected contacts in a more compact format
+    selected_df = pd.DataFrame(st.session_state["selected_contacts"])
+    
+    # Remove the contact_id column for display and reorder columns
+    column_order = ['Name', 'Title', 'Company', 'Location', 'Email', 'LinkedIn', 'ID']
+    display_df = selected_df[column_order]
+    
+    # Show the dataframe
+    st.dataframe(display_df, use_container_width=True)
+    
+    # Download button
+    if len(st.session_state["selected_contacts"]) > 0:
+        # Prepare Excel file
+        excel_buffer = pd.io.common.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            display_df.to_excel(writer, sheet_name='Selected Contacts', index=False)
+        
+        excel_buffer.seek(0)
+        
+        st.download_button(
+            label="📥 Download Selected Contacts (Excel)",
+            data=excel_buffer.getvalue(),
+            file_name=f"selected_contacts_{time.strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary"
         )
-        reduced_list = flat_company_ids[:max_results]
-        for idx, c in enumerate(reduced_list):
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.write(f"🆔 ID: {c}")
-            with col2:
-                if st.button("ℹ️ View Details", key=f"view_{idx}"):
-                    company_detail = st.session_state.get(f"company_detail_{c}")
-                    if company_detail:
-                        st.subheader(f"📄 Company ID {c} – Full Profile")
-                        st.json(company_detail)
-                        df = pd.DataFrame([company_detail])
-                        excel_file = f"company_{c}_profile.xlsx"
-                        df.to_excel(excel_file, index=False)
-                        with open(excel_file, "rb") as f:
-                            st.download_button("📥 Download Excel", f, file_name=excel_file)
-
+            

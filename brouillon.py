@@ -292,7 +292,8 @@ if st.session_state.get("results"):
     for i, row in enumerate(paged_rows):
         col1, col2 = st.columns([5, 1])
         with col1:
-            linkedin_display = f"👤 [{row['LinkedIn']}]({row['LinkedIn']})" if row['LinkedIn'] else "👤 No LinkedIn profile"
+            # Create clickable LinkedIn link that goes to actual LinkedIn page
+            linkedin_display = f"👤 [LinkedIn]({row['LinkedIn']})" if row['LinkedIn'] else "👤 No LinkedIn profile"
             st.markdown(f"**{row['Name']}** – {row['Title']}  \n"
                         f"🏢 {row['Company']}  \n"
                         f"📍 {row['Location']}  \n"
@@ -331,5 +332,4 @@ if st.session_state.get("results"):
             st.rerun()
     
     # Show pagination info at bottom too
-    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
-            
+    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results") 
