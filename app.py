@@ -5,12 +5,18 @@ from dotenv import load_dotenv
 import pandas as pd
 import time
 from urllib.parse import urlencode
+import hubspot
+from hubspot.crm.companies import BatchReadInputSimplePublicObjectId
 
 load_dotenv()
 if "results" not in st.session_state:
     st.session_state["results"] = []
 if "selected_contacts" not in st.session_state:
     st.session_state["selected_contacts"] = []
+if "hubspot_lists" not in st.session_state:
+    st.session_state["hubspot_lists"] = pd.DataFrame()
+if "hubspot_companies" not in st.session_state:
+    st.session_state["hubspot_companies"] = []
 
 
 def enrich_contact_email(person_id):
@@ -43,6 +49,247 @@ def enrich_contact_email(person_id):
         print(f"❌ Error processing enrichment response for {person_id}: {e}")
         return None
 
+
+def get_hubspot_company_lists():
+    """Get all company lists from HubSpot using Context7 method"""
+    
+    access_token = os.getenv("HUBSPOT_ACCESS_TOKEN")
+    if not access_token:
+        st.error("HUBSPOT_ACCESS_TOKEN not found in environment variables")
+        return pd.DataFrame()
+    
+    client = hubspot.Client.create(access_token=access_token)
+    
+    # Method 1: Try SDK get_all() method with proper response handling
+    try:
+        lists_response = client.crm.lists.lists_api.get_all()
+        
+        # Based on Context7 findings, check for 'lists' attribute
+        if hasattr(lists_response, 'lists') and lists_response.lists:
+            all_lists = []
+            for list_obj in lists_response.lists:
+                list_data = {
+                    "list_id": list_obj.list_id,
+                    "name": list_obj.name,
+                    "object_type_id": list_obj.object_type_id,
+                    "size": list_obj.size,
+                    "processing_status": list_obj.processing_status,
+                    "created_at": list_obj.created_at,
+                    "updated_at": list_obj.updated_at
+                }
+                all_lists.append(list_data)
+            
+            df = pd.DataFrame(all_lists)
+            company_lists = df[df['object_type_id'] == '0-2'].copy()
+            
+            if len(company_lists) > 0:
+                return company_lists
+            
+    except Exception as e:
+        pass  # Continue to next method
+    
+    # Method 2: Try direct API request with pagination (Context7 recommended pattern)
+    try:
+        all_lists_data = []
+        after = None
+        page_count = 0
+        
+        while True:
+            page_count += 1
+            
+            # Build request path with pagination
+            path = "/crm/v3/lists?limit=100"
+            if after:
+                path += f"&after={after}"
+            
+            response = client.api_request({
+                "path": path,
+                "method": "GET"
+            })
+            
+            if hasattr(response, 'json'):
+                data = response.json()
+                
+                if 'lists' in data and data['lists']:
+                    lists_on_page = data['lists']
+                    
+                    for list_obj in lists_on_page:
+                        list_data = {
+                            "list_id": list_obj['listId'],
+                            "name": list_obj['name'],
+                            "object_type_id": list_obj['objectTypeId'],
+                            "size": list_obj['size'],
+                            "processing_status": list_obj['processingStatus'],
+                            "created_at": list_obj.get('createdAt', ''),
+                            "updated_at": list_obj.get('updatedAt', '')
+                        }
+                        all_lists_data.append(list_data)
+                    
+                    # Check for next page
+                    paging = data.get('paging', {})
+                    if 'next' in paging and 'after' in paging['next']:
+                        after = paging['next']['after']
+                    else:
+                        break
+                else:
+                    break
+            else:
+                break
+        
+        if all_lists_data:
+            df = pd.DataFrame(all_lists_data)
+            company_lists = df[df['object_type_id'] == '0-2'].copy()
+            
+            if len(company_lists) > 0:
+                return company_lists
+            
+    except Exception as e:
+        pass  # Continue to next method
+    
+    # Method 3: Search API as fallback (Context7 breakthrough method)
+    try:
+        all_lists_data = []
+        offset = 0
+        limit = 20
+        
+        while True:
+            search_response = client.api_request({
+                "path": "/crm/v3/lists/search",
+                "method": "POST",
+                "body": {
+                    "query": "",
+                    "limit": limit,
+                    "offset": offset
+                }
+            })
+            
+            if hasattr(search_response, 'json'):
+                search_data = search_response.json()
+                
+                # The search API returns lists in 'lists' key, not 'results'
+                if 'lists' in search_data and search_data['lists']:
+                    lists_on_page = search_data['lists']
+                    
+                    for list_obj in lists_on_page:
+                        # Handle different response structure - some fields might be in additionalProperties
+                        size = list_obj.get('size', 0)
+                        if size == 0 and 'additionalProperties' in list_obj:
+                            # Try to get size from additionalProperties
+                            size_str = list_obj['additionalProperties'].get('hs_list_size', '0')
+                            try:
+                                size = int(size_str)
+                            except (ValueError, TypeError):
+                                size = 0
+                        
+                        list_data = {
+                            "list_id": list_obj['listId'],
+                            "name": list_obj['name'],
+                            "object_type_id": list_obj['objectTypeId'],
+                            "size": size,
+                            "processing_status": list_obj['processingStatus'],
+                            "created_at": list_obj.get('createdAt', ''),
+                            "updated_at": list_obj.get('updatedAt', '')
+                        }
+                        all_lists_data.append(list_data)
+                    
+                    # Check if there are more results using hasMore
+                    if not search_data.get('hasMore', False):
+                        break
+                    
+                    offset += limit
+                else:
+                    break
+            else:
+                break
+        
+        if all_lists_data:
+            df = pd.DataFrame(all_lists_data)
+            company_lists = df[df['object_type_id'] == '0-2'].copy()
+            
+            if len(company_lists) > 0:
+                return company_lists
+            
+    except Exception as e:
+        pass  # Continue to next method
+    
+    # Method 4: Known lists as last resort
+    try:
+        known_company_lists = [20329]  # Add more known IDs here
+        found_lists = []
+        
+        for list_id in known_company_lists:
+            try:
+                list_response = client.crm.lists.lists_api.get_by_id(list_id=list_id)
+                
+                if hasattr(list_response, 'list'):
+                    list_obj = list_response.list
+                    
+                    if list_obj.object_type_id == '0-2':  # Company list
+                        list_data = {
+                            "list_id": list_obj.list_id,
+                            "name": list_obj.name,
+                            "object_type_id": list_obj.object_type_id,
+                            "size": list_obj.size,
+                            "processing_status": list_obj.processing_status,
+                            "created_at": list_obj.created_at,
+                            "updated_at": list_obj.updated_at
+                        }
+                        found_lists.append(list_data)
+                        
+            except Exception as e:
+                pass  # Continue with next list ID
+        
+        if found_lists:
+            df = pd.DataFrame(found_lists)
+            return df
+            
+    except Exception as e:
+        st.error(f"Error getting company lists: {e}")
+    
+    # If all methods fail, return empty DataFrame
+    return pd.DataFrame()
+
+def get_companies_from_hubspot_list(client, list_id, list_name):
+    """Get companies from a specific HubSpot list"""
+    try:
+        # Get memberships
+        memberships = client.crm.lists.memberships_api.get_page(list_id=list_id)
+        
+        if not memberships.results:
+            return pd.DataFrame()
+        
+        company_ids = [m.record_id for m in memberships.results]
+        
+        # Get company details
+        batch_input = BatchReadInputSimplePublicObjectId(
+            inputs=[{"id": str(cid)} for cid in company_ids],
+            properties=["name", "domain", "city", "industry", "phone", "website"]
+        )
+        
+        response = client.crm.companies.batch_api.read(
+            batch_read_input_simple_public_object_id=batch_input
+        )
+        
+        companies = []
+        for company in response.results:
+            company_data = {
+                "list_id": list_id,
+                "list_name": list_name,
+                "company_id": company.id,
+                "name": company.properties.get('name', '') if company.properties else '',
+                "domain": company.properties.get('domain', '') if company.properties else '',
+                "city": company.properties.get('city', '') if company.properties else '',
+                "industry": company.properties.get('industry', '') if company.properties else '',
+                "phone": company.properties.get('phone', '') if company.properties else '',
+                "website": company.properties.get('website', '') if company.properties else ''
+            }
+            companies.append(company_data)
+        
+        return pd.DataFrame(companies)
+        
+    except Exception as e:
+        st.error(f"Error getting companies from list {list_name}: {e}")
+        return pd.DataFrame()
 
 def search_people(company_name, locations, job_titles=None, seniorities=None, domains=None, per_page=50, page=1):
     # Build query parameters for Apollo API
@@ -136,10 +383,11 @@ def search_people(company_name, locations, job_titles=None, seniorities=None, do
 
 st.title("Contact Finder")
 
-# Step 1 – get the list of company domains via an Excel file or manual input
+# Step 1 – get the list of company domains via an Excel file, manual input, or HubSpot lists
 st.subheader("1️⃣ Import Company Domains")
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 all_comps = []
+
 with col1:
     uploaded_file = st.file_uploader("Upload Excel file with company domains", type=["xlsx", "xls"])
     if uploaded_file:
@@ -152,6 +400,7 @@ with col1:
         else:
             # Load data from the Company Domain Name column
             all_comps += [n for n in df_excel["Company Domain Name"].dropna().unique()]
+
 with col2:
     manual_companies = st.text_area(
         "Or enter company domains manually (one per line)",
@@ -160,6 +409,86 @@ with col2:
     )
     if manual_companies:
         all_comps += [n.strip() for n in manual_companies.split("\n") if n.strip()]
+
+with col3:
+    st.write("**Or import from HubSpot lists:**")
+    
+    # Auto-load HubSpot lists if not already loaded
+    hubspot_lists_df = st.session_state.get("hubspot_lists", pd.DataFrame())
+    
+    # If lists not loaded yet, load them automatically
+    if not isinstance(hubspot_lists_df, pd.DataFrame) or hubspot_lists_df.empty:
+        with st.spinner("Loading HubSpot company lists..."):
+            hubspot_lists = get_hubspot_company_lists()
+            if not hubspot_lists.empty:
+                st.session_state["hubspot_lists"] = hubspot_lists
+                hubspot_lists_df = hubspot_lists
+            else:
+                st.session_state["hubspot_lists"] = pd.DataFrame()
+                hubspot_lists_df = pd.DataFrame()
+    
+    # Display dropdown if lists are available
+    if isinstance(hubspot_lists_df, pd.DataFrame) and not hubspot_lists_df.empty:
+        # Create dropdown options
+        list_options = ["-- Select a HubSpot list --"]
+        for _, row in hubspot_lists_df.iterrows():
+            list_options.append(f"{row['name']} ({row['size']} companies)")
+        
+        selected_list = st.selectbox(
+            "Select a HubSpot company list:",
+            options=list_options,
+            help="Choose a company list to import domains from"
+        )
+        
+        # Add refresh button as a small secondary option
+        if st.button("🔄", help="Refresh HubSpot lists", key="refresh_hubspot_lists"):
+            st.session_state["hubspot_lists"] = pd.DataFrame()
+            st.rerun()
+        
+        # Show details and import button when a list is selected
+        if selected_list and selected_list != "-- Select a HubSpot list --":
+            # Extract list name from the formatted string
+            list_name = selected_list.split(" (")[0]
+            
+            # Find the corresponding list_id and details
+            list_row = hubspot_lists_df[hubspot_lists_df['name'] == list_name]
+            if not list_row.empty:
+                list_data = list_row.iloc[0]
+                
+                # Import button
+                if st.button("📥 Import Companies from List", key="import_hubspot_list"):
+                    with st.spinner(f"Importing companies from '{list_data['name']}'..."):
+                        access_token = os.getenv("HUBSPOT_ACCESS_TOKEN")
+                        client = hubspot.Client.create(access_token=access_token)
+                        
+                        # Get companies from this list
+                        companies_df = get_companies_from_hubspot_list(client, list_data['list_id'], list_data['name'])
+                        
+                        if not companies_df.empty:
+                            # Extract domains and add to all_comps
+                            domains = companies_df[companies_df['domain'].notna()]['domain'].unique()
+                            domains = [d.strip() for d in domains if d.strip()]
+                            
+                            if domains:
+                                all_comps += domains
+                                st.success(f"✅ Imported {len(domains)} company domains from '{list_data['name']}'")
+                                
+                                # Store companies in session state for reference
+                                st.session_state["hubspot_companies"] = companies_df.to_dict('records')
+                                
+                            else:
+                                st.warning(f"❌ No domains found for companies in list '{list_data['name']}'")
+                        else:
+                            st.warning(f"❌ No companies found in list '{list_data['name']}'")
+    else:
+        # Show message when no lists are available
+        if st.session_state.get("hubspot_lists") is not None:
+            st.warning("No HubSpot company lists found")
+            if st.button("🔄 Try Again", key="retry_hubspot_lists"):
+                st.session_state["hubspot_lists"] = pd.DataFrame()
+                st.rerun()
+        else:
+            st.info("Loading HubSpot lists...")
 # Remove duplicates and empty
 all_comps = list({n for n in all_comps if n})
 if not all_comps:
