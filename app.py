@@ -9,6 +9,8 @@ import hubspot
 from hubspot.crm.companies import BatchReadInputSimplePublicObjectId
 
 load_dotenv()
+
+# Initialize session state variables
 if "results" not in st.session_state:
     st.session_state["results"] = []
 if "selected_contacts" not in st.session_state:
@@ -17,7 +19,52 @@ if "hubspot_lists" not in st.session_state:
     st.session_state["hubspot_lists"] = pd.DataFrame()
 if "hubspot_companies" not in st.session_state:
     st.session_state["hubspot_companies"] = []
+if "all_companies" not in st.session_state:
+    st.session_state["all_companies"] = []
+if "selected_domains" not in st.session_state:
+    st.session_state["selected_domains"] = []
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
 
+# Authentication function
+def check_authentication():
+    """Check if user is authenticated with passcode"""
+    # Get passcode from environment variable or use default
+    correct_passcode = os.getenv("APP_PASSCODE", "contacts2024")
+    
+    if not st.session_state["authenticated"]:
+        st.title("🔐 Access Protected")
+        st.write("Please enter the passcode to access the Contacts Finder application.")
+        
+        # Create columns for better layout
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col2:
+            passcode_input = st.text_input(
+                "Enter Passcode:",
+                type="password",
+                placeholder="Enter your passcode",
+                key="passcode_input"
+            )
+            
+            if st.button("🔓 Access App", type="primary", use_container_width=True):
+                if passcode_input == correct_passcode:
+                    st.session_state["authenticated"] = True
+                    st.success("✅ Access granted! Redirecting...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect passcode. Please try again.")
+            
+        
+        # Add some styling and info
+        st.markdown("---")
+        st.info("💡 **Tip:** Contact your administrator if you don't have the passcode.")
+        
+        # Stop execution here if not authenticated
+        return False
+    
+    return True
 
 def enrich_contact_email(person_id):
     """Enrich contact with email using Apollo API"""
@@ -377,381 +424,439 @@ def search_people(company_name, locations, job_titles=None, seniorities=None, do
         print(f"❌ Error processing response for {company_name}: {e}")
         return []
 
-
-
-# — Interface Streamlit —
-
-st.title("Contact Finder")
-
-# Step 1 – get the list of company domains via an Excel file, manual input, or HubSpot lists
-st.subheader("1️⃣ Import Company Domains")
-col1, col2, col3 = st.columns(3)
-all_comps = []
-
-with col1:
-    uploaded_file = st.file_uploader("Upload Excel file with company domains", type=["xlsx", "xls"])
-    if uploaded_file:
-        df_excel = pd.read_excel(uploaded_file)
+# Main app function
+def main_app():
+    """Main application content"""
+    # Add logout option in sidebar
+    with st.sidebar:
+        st.markdown("### 🔐 Session")
+        if st.button("🚪 Logout", type="secondary"):
+            st.session_state["authenticated"] = False
+            st.success("Logged out successfully!")
+            time.sleep(1)
+            st.rerun()
         
-        # Check for the required column
-        if "Company Domain Name" not in df_excel.columns:
-            st.error("Excel file must contain a 'Company Domain Name' column.")
-            st.info(f"Available columns: {', '.join(df_excel.columns.tolist())}")
-        else:
-            # Load data from the Company Domain Name column
-            all_comps += [n for n in df_excel["Company Domain Name"].dropna().unique()]
+        st.markdown("---")
+        st.markdown("### ℹ️ App Info")
+        st.write("**Contacts Finder**")
+        st.write("Find and enrich contacts from company domains")
 
-with col2:
-    manual_companies = st.text_area(
-        "Or enter company domains manually (one per line)",
-        placeholder="google.com\nmicrosoft.com\napple.com",
-        help="Enter domain names (without http:// or www.)"
-    )
-    if manual_companies:
-        all_comps += [n.strip() for n in manual_companies.split("\n") if n.strip()]
+    # — Interface Streamlit —
 
-with col3:
-    st.write("**Or import from HubSpot lists:**")
-    
-    # Auto-load HubSpot lists if not already loaded
-    hubspot_lists_df = st.session_state.get("hubspot_lists", pd.DataFrame())
-    
-    # If lists not loaded yet, load them automatically
-    if not isinstance(hubspot_lists_df, pd.DataFrame) or hubspot_lists_df.empty:
-        with st.spinner("Loading HubSpot company lists..."):
-            hubspot_lists = get_hubspot_company_lists()
-            if not hubspot_lists.empty:
-                st.session_state["hubspot_lists"] = hubspot_lists
-                hubspot_lists_df = hubspot_lists
+    st.title("Contacts Finder")
+
+    # Step 1 – get the list of company domains via an Excel file, manual input, or HubSpot lists
+    st.subheader("1️⃣ Import Company Domains")
+    col1, col2, col3 = st.columns(3)
+
+    # Use session state to persist imported companies across re-runs
+    all_comps = st.session_state["all_companies"].copy()
+
+    with col1:
+        uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx", "xls"], help="Upload an Excel file with a 'Company Domain Name' column")
+        if uploaded_file:
+            df_excel = pd.read_excel(uploaded_file)
+            
+            # Check for the required column
+            if "Company Domain Name" not in df_excel.columns:
+                st.error("Excel file must contain a 'Company Domain Name' column.")
+                st.info(f"Available columns: {', '.join(df_excel.columns.tolist())}")
             else:
-                st.session_state["hubspot_lists"] = pd.DataFrame()
-                hubspot_lists_df = pd.DataFrame()
-    
-    # Display dropdown if lists are available
-    if isinstance(hubspot_lists_df, pd.DataFrame) and not hubspot_lists_df.empty:
-        # Create dropdown options
-        list_options = ["-- Select a HubSpot list --"]
-        for _, row in hubspot_lists_df.iterrows():
-            list_options.append(f"{row['name']} ({row['size']} companies)")
-        
-        selected_list = st.selectbox(
-            "Select a HubSpot company list:",
-            options=list_options,
-            help="Choose a company list to import domains from"
+                # Load data from the Company Domain Name column
+                excel_domains = [n for n in df_excel["Company Domain Name"].dropna().unique()]
+                all_comps += excel_domains
+                # Update session state
+                st.session_state["all_companies"] = all_comps
+
+    with col2:
+        manual_companies = st.text_area(
+            "Type manually (one per line)",
+            placeholder="google.com\nmicrosoft.com\napple.com",
+            help="Enter domain names (without http:// or www.)",
+            key="manual_text_area",
+            height=135
         )
+        if manual_companies:
+            manual_domains = [n.strip() for n in manual_companies.split("\n") if n.strip()]
+            all_comps += manual_domains
+            # Update session state
+            st.session_state["all_companies"] = all_comps
+
+    with col3:
         
-        # Add refresh button as a small secondary option
-        if st.button("🔄", help="Refresh HubSpot lists", key="refresh_hubspot_lists"):
-            st.session_state["hubspot_lists"] = pd.DataFrame()
-            st.rerun()
+        # Auto-load HubSpot lists if not already loaded
+        hubspot_lists_df = st.session_state.get("hubspot_lists", pd.DataFrame())
         
-        # Show details and import button when a list is selected
-        if selected_list and selected_list != "-- Select a HubSpot list --":
-            # Extract list name from the formatted string
-            list_name = selected_list.split(" (")[0]
+        # If lists not loaded yet, load them automatically
+        if not isinstance(hubspot_lists_df, pd.DataFrame) or hubspot_lists_df.empty:
+            with st.spinner("Loading HubSpot company lists..."):
+                hubspot_lists = get_hubspot_company_lists()
+                if not hubspot_lists.empty:
+                    st.session_state["hubspot_lists"] = hubspot_lists
+                    hubspot_lists_df = hubspot_lists
+                else:
+                    st.session_state["hubspot_lists"] = pd.DataFrame()
+                    hubspot_lists_df = pd.DataFrame()
+        
+        # Display dropdown if lists are available
+        if isinstance(hubspot_lists_df, pd.DataFrame) and not hubspot_lists_df.empty:
+            # Create dropdown options
+            list_options = ["-- Select a HubSpot list --"]
+            for _, row in hubspot_lists_df.iterrows():
+                list_options.append(f"{row['name']} ({row['size']} companies)")
             
-            # Find the corresponding list_id and details
-            list_row = hubspot_lists_df[hubspot_lists_df['name'] == list_name]
-            if not list_row.empty:
-                list_data = list_row.iloc[0]
+            selected_list = st.selectbox(
+                "Select a HubSpot company list:",
+                options=list_options,
+                help="Choose a company list to import domains from"
+            )
+            
+            # Show details and import button when a list is selected
+            if selected_list and selected_list != "-- Select a HubSpot list --":
+                # Extract list name from the formatted string
+                list_name = selected_list.split(" (")[0]
                 
-                # Import button
-                if st.button("📥 Import Companies from List", key="import_hubspot_list"):
-                    with st.spinner(f"Importing companies from '{list_data['name']}'..."):
-                        access_token = os.getenv("HUBSPOT_ACCESS_TOKEN")
-                        client = hubspot.Client.create(access_token=access_token)
-                        
-                        # Get companies from this list
-                        companies_df = get_companies_from_hubspot_list(client, list_data['list_id'], list_data['name'])
-                        
-                        if not companies_df.empty:
-                            # Extract domains and add to all_comps
-                            domains = companies_df[companies_df['domain'].notna()]['domain'].unique()
-                            domains = [d.strip() for d in domains if d.strip()]
+                # Find the corresponding list_id and details
+                list_row = hubspot_lists_df[hubspot_lists_df['name'] == list_name]
+                if not list_row.empty:
+                    list_data = list_row.iloc[0]
+                    
+                    # Import button
+                    if st.button("Import company domains", key="import_hubspot_list", use_container_width=True):
+                        with st.spinner(f"Importing companies from '{list_data['name']}'..."):
+                            access_token = os.getenv("HUBSPOT_ACCESS_TOKEN")
+                            client = hubspot.Client.create(access_token=access_token)
                             
-                            if domains:
-                                all_comps += domains
-                                st.success(f"✅ Imported {len(domains)} company domains from '{list_data['name']}'")
+                            # Get companies from this list
+                            companies_df = get_companies_from_hubspot_list(client, list_data['list_id'], list_data['name'])
+                            
+                            if not companies_df.empty:
+                                # Extract domains and add to all_comps
+                                domains = companies_df[companies_df['domain'].notna()]['domain'].unique()
+                                domains = [d.strip() for d in domains if d.strip()]
                                 
-                                # Store companies in session state for reference
-                                st.session_state["hubspot_companies"] = companies_df.to_dict('records')
-                                
+                                if domains:
+                                    all_comps += domains
+                                    # Update session state
+                                    st.session_state["all_companies"] = all_comps
+                                    # st.success(f"Imported {len(domains)} company domains")
+                                    
+                                    # Store companies in session state for reference
+                                    st.session_state["hubspot_companies"] = companies_df.to_dict('records')
+                                    
+                                else:
+                                    st.warning(f"❌ No domains found for companies in list '{list_data['name']}'")
                             else:
-                                st.warning(f"❌ No domains found for companies in list '{list_data['name']}'")
-                        else:
-                            st.warning(f"❌ No companies found in list '{list_data['name']}'")
-    else:
-        # Show message when no lists are available
-        if st.session_state.get("hubspot_lists") is not None:
-            st.warning("No HubSpot company lists found")
-            if st.button("🔄 Try Again", key="retry_hubspot_lists"):
-                st.session_state["hubspot_lists"] = pd.DataFrame()
-                st.rerun()
+                                st.warning(f"❌ No companies found in list '{list_data['name']}'")
         else:
-            st.info("Loading HubSpot lists...")
-# Remove duplicates and empty
-all_comps = list({n for n in all_comps if n})
-if not all_comps:
-    st.warning("Please upload an Excel file with company domains or enter them manually.")
-    st.stop()
-
-all_comps = [{"id": i, "name": n, "type": "domains"} for i, n in enumerate(all_comps)]
-
-st.info(f"📊 Total domains loaded: {len(all_comps)}")
-
-# Step 2 – select domains & filters
-st.subheader("2️⃣ Select Domains & Filters")
-select_all = st.checkbox("Select All Domains")
-
-if select_all:
-    selected = [c["name"] for c in all_comps]
-else:
-    selected = st.multiselect(
-        "Select domains",
-        options=[c["name"] for c in all_comps],
-        default=[]
-    )
-if len(selected) > 20:
-    st.warning("You have selected more than 20 domains. This may take a while and could hit API rate limits.")
-
-locations_input = st.text_input(
-    "Location (1 to 2), separated by ; (e.g. London ; Paris)",
-)
-seniorities = st.multiselect(
-    "Seniority (optional, select up to 2)",
-    options=[
-        "owner", "founder", "c_suite", "partner", "vp", "head",
-        "director", "manager", "senior", "entry", "intern"
-    ],
-    default=[]
-)
-job_titles_input = st.text_input(
-    "Job title (optional, up to 5), separated by ; (e.g. HR Director; Recruiter)"
-)
-
-if st.button("Start Search"):
-    job_titles = [j.strip() for j in job_titles_input.split(";") if j.strip()]
-    locations = [l.strip() for l in locations_input.split(";") if l.strip()]
-    
-    if not selected or not locations:
-        st.error("Please select at least:\n• 1 domain\n• 1 location")
-    else:
-        try:
-            # Clear all previous results and cache
-            st.session_state["results"] = []  # Reset stored results
-            if "search_cache" in st.session_state:
-                del st.session_state["search_cache"]
-            
-            total_found = 0
-            progress = st.progress(0, text="Searching contacts...")
-            
-            for idx, item in enumerate(selected):
-                # st.write(f"🔍 **Now searching domain: {item}**")
-                # For domains, we search without specific company name
-                people = search_people(
-                    company_name="",  # Empty company name when using domains
-                    locations=locations,
-                    job_titles=job_titles,
-                    seniorities=seniorities,
-                    domains=[item]
-                )
-                search_label = item  # Use domain as the label
-                
-                try:
-                    company_results = 0
-                    people_from_api = len(people)  # Store original count
-                    
-                    for p in people:
-                        # Add the searched item (company or domain) to each person's data
-                        p["searched_company"] = search_label
-                        st.session_state["results"].append(p)
-                        company_results += 1
-                        total_found += 1
-                    
-                    # Debug info
-                    if company_results > 0:
-                        st.write(f"✅ {search_label}: Found {company_results} people")
-                    else:
-                        st.write(f"❌ {search_label}: No people found")
-                        
-                        # Additional debugging for failed searches
-                        st.write(f"   🔍 API returned {people_from_api} people for {search_label}")
-                        search_terms = []
-                        if job_titles:
-                            search_terms.append(f"titles: {', '.join(job_titles)}")
-                        search_terms.append(f"locations: {', '.join(locations)}")
-                        search_terms.append(f"domain: {item}")
-                        st.write(f"   📍 Search terms: {' | '.join(search_terms)}")
-                        if seniorities:
-                            st.write(f"   👥 Seniorities: {', '.join(seniorities)}")
-                        
-                except Exception as e:
-                    st.warning(f"Error searching {search_label}: {e}")
-                progress.progress((idx + 1) / len(selected), text=f"Searched {idx + 1}/{len(selected)} domains")
-                time.sleep(0.2)  # Small delay to avoid rate limits
-            
-            progress.empty()
-            st.success(f"Total people found: {total_found}")
-        except Exception as e:
-            st.error(f"Error during search: {e}")
-
-# Step 3 – Results and Export
-if st.session_state.get("results"):
-    st.subheader("3️⃣ Search Results")
-
-# Pagination for results
-def get_page(items, page, page_size):
-    start = page * page_size
-    end = start + page_size
-    return items[start:end]
-
-if st.session_state.get("results"):
-    data = st.session_state["results"]
-    rows = []
-    for p in data:
-        rows.append({
-            "Name": p.get("name"),
-            "Title": p.get("title"),
-            "Company": p.get("searched_company"),  # Use the company that was searched for
-            "Location": p.get("present_raw_address") or f"{p.get('city')}, {p.get('country')}",
-            "LinkedIn": p.get("linkedin_url"),
-            "ID": p.get("id")  # Keep Apollo API ID for enrichment
-        })
-    # Pagination controls
-    page_size = 10
-    total_pages = (len(rows) - 1) // page_size + 1
-    
-    # Initialize page in session state if not exists
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = 1
-    
-    # Ensure current page is within valid range
-    if st.session_state.current_page > total_pages:
-        st.session_state.current_page = 1
-    
-    # Top pagination control
-    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
-    with col1:
-        if st.button("⬅️ Previous", key="prev_top", disabled=st.session_state.current_page <= 1):
-            st.session_state.current_page -= 1
-            st.rerun()
-    with col3:
-        top_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_top")
-        if top_page != st.session_state.current_page:
-            st.session_state.current_page = top_page
-            st.rerun()
-    with col5:
-        if st.button("Next ➡️", key="next_top", disabled=st.session_state.current_page >= total_pages):
-            st.session_state.current_page += 1
-            st.rerun()
-    
-    page = st.session_state.current_page - 1  # Convert to 0-based for indexing
-    paged_rows = get_page(rows, page, page_size)
-    
-    # Show results count
-    start_idx = page * page_size + 1
-    end_idx = min((page + 1) * page_size, len(rows))
-    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
-    for i, row in enumerate(paged_rows):
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            linkedin_display = f"👤 [LinkedIn]({row['LinkedIn']})" if row['LinkedIn'] else "👤 No LinkedIn profile"
-            st.markdown(f"**{row['Name']}** – {row['Title']}  \n"
-                        f"🏢 {row['Company']}  \n"
-                        f"📍 {row['Location']}  \n"
-                        f"{linkedin_display}")
-        with col2:
-            # Check if this contact is already selected
-            contact_id = f"{row['Name']}_{row['Company']}_{row['Title']}"
-            is_selected = any(c.get('contact_id') == contact_id for c in st.session_state["selected_contacts"])
-            
-            if is_selected:
-                if st.button("✅ Selected", key=f"selected_{page}_{i}", disabled=True):
-                    pass
-            else:
-                if st.button("Select and enrich", key=f"select_{page}_{i}"):
-                    # Show enrichment progress
-                    with st.spinner(f"Enriching {row['Name']}..."):
-                        # Enrich contact with email
-                        email = enrich_contact_email(row["ID"])
-                    
-                    # Add contact to selected list
-                    contact_data = {
-                        "contact_id": contact_id,
-                        "ID": row["ID"],  # Apollo API ID for enrichment
-                        "Name": row["Name"],
-                        "Title": row["Title"], 
-                        "Company": row["Company"],
-                        "Location": row["Location"],
-                        "LinkedIn": row["LinkedIn"],
-                        "Email": email if email else "Not available"
-                    }
-                    st.session_state["selected_contacts"].append(contact_data)
-                    
-                    if email:
-                        st.success(f"{row['Name']} selected! Email: {email}")
-                    else:
-                        st.success(f"{row['Name']} selected! (No email found)")
+            # Show message when no lists are available
+            if st.session_state.get("hubspot_lists") is not None:
+                st.warning("No HubSpot company lists found")
+                if st.button("🔄 Try Again", key="retry_hubspot_lists"):
+                    st.session_state["hubspot_lists"] = pd.DataFrame()
                     st.rerun()
-    
-    # Bottom pagination control
-    st.divider()
-    col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
-    with col1:
-        if st.button("⬅️ Previous", key="prev_bottom", disabled=st.session_state.current_page <= 1):
-            st.session_state.current_page -= 1
-            st.rerun()
-    with col3:
-        bottom_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_bottom")
-        if bottom_page != st.session_state.current_page:
-            st.session_state.current_page = bottom_page
-            st.rerun()
-    with col5:
-        if st.button("Next ➡️", key="next_bottom", disabled=st.session_state.current_page >= total_pages):
-            st.session_state.current_page += 1
-            st.rerun()
-    
-    # Show pagination info at bottom too
-    st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
+            else:
+                st.info("Loading HubSpot lists...")
+    # Remove duplicates and empty
+    unique_domains = list({n for n in all_comps if n})
+    # Update session state with cleaned list
+    st.session_state["all_companies"] = unique_domains
 
-# Step 4 - Selected Contacts & Export
-if st.session_state.get("selected_contacts"):
-    st.subheader("4️⃣ Selected Contacts")
-    
-    # Show count and clear button
+    if not unique_domains:
+        st.warning("Please upload an Excel file with company domains or enter them manually.")
+        st.stop()
+
+    all_comps = [{"id": i, "name": n, "type": "domains"} for i, n in enumerate(unique_domains)]
+
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.write(f"📋 **{len(st.session_state['selected_contacts'])} contacts selected**")
+        st.info(f"Total domains loaded: {len(all_comps)}")
     with col2:
-        if st.button("Clear All", type="secondary"):
-            st.session_state["selected_contacts"] = []
-            st.success("All selections cleared!")
+        if len(all_comps) > 0 and st.button("🗑️ Clear All Domains", type="secondary"):
+            st.session_state["all_companies"] = []
+            st.session_state["selected_domains"] = []
+            # Clear manual text area
+            if "manual_text_area" in st.session_state:
+                del st.session_state["manual_text_area"]
+            st.success("All domains cleared!")
             st.rerun()
-    
-    # Display selected contacts in a more compact format
-    selected_df = pd.DataFrame(st.session_state["selected_contacts"])
-    
-    # Remove the contact_id column for display and reorder columns
-    column_order = ['Name', 'Title', 'Company', 'Location', 'Email', 'LinkedIn', 'ID']
-    display_df = selected_df[column_order]
-    
-    # Show the dataframe
-    st.dataframe(display_df, use_container_width=True)
-    
-    # Download button
-    if len(st.session_state["selected_contacts"]) > 0:
-        # Prepare Excel file
-        excel_buffer = pd.io.common.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            display_df.to_excel(writer, sheet_name='Selected Contacts', index=False)
-        
-        excel_buffer.seek(0)
-        
-        st.download_button(
-            label="📥 Download Selected Contacts (Excel)",
-            data=excel_buffer.getvalue(),
-            file_name=f"selected_contacts_{time.strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary"
+
+    # Step 2 – select domains & filters
+    st.subheader("2️⃣ Select Domains & Filters")
+
+    # Get available domain names
+    available_domains = [c["name"] for c in all_comps]
+
+    # Clean up selected domains - only keep those still available
+    valid_selected = [domain for domain in st.session_state["selected_domains"] if domain in available_domains]
+
+    # Select all checkbox
+    select_all = st.checkbox("Select All Domains")
+
+    # Handle select all logic
+    if select_all:
+        selected = available_domains
+        # Only update session state when select all is used
+        st.session_state["selected_domains"] = selected
+    else:
+        # Use the multiselect widget without immediate session state updates
+        selected = st.multiselect(
+            "Select domains",
+            options=available_domains,
+            default=valid_selected
         )
+        # Don't update session state immediately - let the widget handle its own state
+        # Only update session state when we actually need persistence (like before search)
+    if len(selected) > 20:
+        st.warning("You have selected more than 20 domains. This may take a while and could hit API rate limits.")
+
+    locations_input = st.text_input(
+        "Location (1 to 2), separated by ; (e.g. London ; Paris)",
+    )
+    seniorities = st.multiselect(
+        "Seniority (optional, select up to 2)",
+        options=[
+            "owner", "founder", "c_suite", "partner", "vp", "head",
+            "director", "manager", "senior", "entry", "intern"
+        ],
+        default=[]
+    )
+    job_titles_input = st.text_input(
+        "Job title (optional, up to 5), separated by ; (e.g. HR Director; Recruiter)"
+    )
+
+    if st.button("Start Search"):
+        job_titles = [j.strip() for j in job_titles_input.split(";") if j.strip()]
+        locations = [l.strip() for l in locations_input.split(";") if l.strip()]
+        
+        # Update session state with current selections for persistence
+        st.session_state["selected_domains"] = selected
+        
+        if not selected or not locations:
+            st.error("Please select at least:\n• 1 domain\n• 1 location")
+        else:
+            try:
+                # Clear all previous results and cache
+                st.session_state["results"] = []  # Reset stored results
+                if "search_cache" in st.session_state:
+                    del st.session_state["search_cache"]
+                
+                total_found = 0
+                progress = st.progress(0, text="Searching contacts...")
+                
+                for idx, item in enumerate(selected):
+                    # st.write(f"🔍 **Now searching domain: {item}**")
+                    # For domains, we search without specific company name
+                    people = search_people(
+                        company_name="",  # Empty company name when using domains
+                        locations=locations,
+                        job_titles=job_titles,
+                        seniorities=seniorities,
+                        domains=[item]
+                    )
+                    search_label = item  # Use domain as the label
+                    
+                    try:
+                        company_results = 0
+                        people_from_api = len(people)  # Store original count
+                        
+                        for p in people:
+                            # Add the searched item (company or domain) to each person's data
+                            p["searched_company"] = search_label
+                            st.session_state["results"].append(p)
+                            company_results += 1
+                            total_found += 1
+                        
+                        # Debug info
+                        if company_results > 0:
+                            st.write(f"✅ {search_label}: Found {company_results} people")
+                        else:
+                            st.write(f"❌ {search_label}: No people found")
+                            
+                            # Additional debugging for failed searches
+                            st.write(f"   🔍 API returned {people_from_api} people for {search_label}")
+                            search_terms = []
+                            if job_titles:
+                                search_terms.append(f"titles: {', '.join(job_titles)}")
+                            search_terms.append(f"locations: {', '.join(locations)}")
+                            search_terms.append(f"domain: {item}")
+                            st.write(f"   📍 Search terms: {' | '.join(search_terms)}")
+                            if seniorities:
+                                st.write(f"   👥 Seniorities: {', '.join(seniorities)}")
+                            
+                    except Exception as e:
+                        st.warning(f"Error searching {search_label}: {e}")
+                    progress.progress((idx + 1) / len(selected), text=f"Searched {idx + 1}/{len(selected)} domains")
+                    time.sleep(0.2)  # Small delay to avoid rate limits
+                
+                progress.empty()
+                st.success(f"Total people found: {total_found}")
+            except Exception as e:
+                st.error(f"Error during search: {e}")
+
+    # Step 3 – Results and Export
+    if st.session_state.get("results"):
+        st.subheader("3️⃣ Search Results")
+
+    # Pagination for results
+    def get_page(items, page, page_size):
+        start = page * page_size
+        end = start + page_size
+        return items[start:end]
+
+    if st.session_state.get("results"):
+        data = st.session_state["results"]
+        rows = []
+        for p in data:
+            rows.append({
+                "Name": p.get("name"),
+                "Title": p.get("title"),
+                "Company": p.get("searched_company"),  # Use the company that was searched for
+                "Location": p.get("present_raw_address") or f"{p.get('city')}, {p.get('country')}",
+                "LinkedIn": p.get("linkedin_url"),
+                "ID": p.get("id")  # Keep Apollo API ID for enrichment
+            })
+        # Pagination controls
+        page_size = 10
+        total_pages = (len(rows) - 1) // page_size + 1
+        
+        # Initialize page in session state if not exists
+        if "current_page" not in st.session_state:
+            st.session_state.current_page = 1
+        
+        # Ensure current page is within valid range
+        if st.session_state.current_page > total_pages:
+            st.session_state.current_page = 1
+        
+        # Top pagination control
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
+        with col1:
+            if st.button("⬅️ Previous", key="prev_top", disabled=st.session_state.current_page <= 1):
+                st.session_state.current_page -= 1
+                st.rerun()
+        with col3:
+            top_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_top")
+            if top_page != st.session_state.current_page:
+                st.session_state.current_page = top_page
+                st.rerun()
+        with col5:
+            if st.button("Next ➡️", key="next_top", disabled=st.session_state.current_page >= total_pages):
+                st.session_state.current_page += 1
+                st.rerun()
+        
+        page = st.session_state.current_page - 1  # Convert to 0-based for indexing
+        paged_rows = get_page(rows, page, page_size)
+        
+        # Show results count
+        start_idx = page * page_size + 1
+        end_idx = min((page + 1) * page_size, len(rows))
+        st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
+        for i, row in enumerate(paged_rows):
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                linkedin_display = f"👤 [LinkedIn]({row['LinkedIn']})" if row['LinkedIn'] else "👤 No LinkedIn profile"
+                st.markdown(f"**{row['Name']}** – {row['Title']}  \n"
+                            f"🏢 {row['Company']}  \n"
+                            f"📍 {row['Location']}  \n"
+                            f"{linkedin_display}")
+            with col2:
+                # Check if this contact is already selected
+                contact_id = f"{row['Name']}_{row['Company']}_{row['Title']}"
+                is_selected = any(c.get('contact_id') == contact_id for c in st.session_state["selected_contacts"])
+                
+                if is_selected:
+                    if st.button("✅ Selected", key=f"selected_{page}_{i}", disabled=True):
+                        pass
+                else:
+                    if st.button("Select and enrich", key=f"select_{page}_{i}"):
+                        # Show enrichment progress
+                        with st.spinner(f"Enriching {row['Name']}..."):
+                            # Enrich contact with email
+                            email = enrich_contact_email(row["ID"])
+                        
+                        # Add contact to selected list
+                        contact_data = {
+                            "contact_id": contact_id,
+                            "ID": row["ID"],  # Apollo API ID for enrichment
+                            "Name": row["Name"],
+                            "Title": row["Title"], 
+                            "Company": row["Company"],
+                            "Location": row["Location"],
+                            "LinkedIn": row["LinkedIn"],
+                            "Email": email if email else "Not available"
+                        }
+                        st.session_state["selected_contacts"].append(contact_data)
+                        
+                        if email:
+                            st.success(f"{row['Name']} selected! Email: {email}")
+                        else:
+                            st.success(f"{row['Name']} selected! (No email found)")
+                        st.rerun()
+        
+        # Bottom pagination control
+        st.divider()
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
+        with col1:
+            if st.button("⬅️ Previous", key="prev_bottom", disabled=st.session_state.current_page <= 1):
+                st.session_state.current_page -= 1
+                st.rerun()
+        with col3:
+            bottom_page = st.number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.current_page, step=1, key="page_bottom")
+            if bottom_page != st.session_state.current_page:
+                st.session_state.current_page = bottom_page
+                st.rerun()
+        with col5:
+            if st.button("Next ➡️", key="next_bottom", disabled=st.session_state.current_page >= total_pages):
+                st.session_state.current_page += 1
+                st.rerun()
+        
+        # Show pagination info at bottom too
+        st.write(f"Showing {start_idx}-{end_idx} of {len(rows)} results")
+
+    # Step 4 - Selected Contacts & Export
+    if st.session_state.get("selected_contacts"):
+        st.subheader("4️⃣ Selected Contacts")
+        
+        # Show count and clear button
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write(f"📋 **{len(st.session_state['selected_contacts'])} contacts selected**")
+        with col2:
+            if st.button("Clear All", type="secondary"):
+                st.session_state["selected_contacts"] = []
+                st.success("All selections cleared!")
+                st.rerun()
+        
+        # Display selected contacts in a more compact format
+        selected_df = pd.DataFrame(st.session_state["selected_contacts"])
+        
+        # Remove the contact_id column for display and reorder columns
+        column_order = ['Name', 'Title', 'Company', 'Location', 'Email', 'LinkedIn', 'ID']
+        display_df = selected_df[column_order]
+        
+        # Show the dataframe
+        st.dataframe(display_df, use_container_width=True)
+        
+        # Download button
+        if len(st.session_state["selected_contacts"]) > 0:
+            # Prepare Excel file
+            excel_buffer = pd.io.common.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                display_df.to_excel(writer, sheet_name='Selected Contacts', index=False)
+            
+            excel_buffer.seek(0)
+            
+            st.download_button(
+                label="📥 Download Selected Contacts (Excel)",
+                data=excel_buffer.getvalue(),
+                file_name=f"selected_contacts_{time.strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
+            )
+
+# Authentication and main app execution
+if __name__ == "__main__":
+    # Check authentication first
+    if check_authentication():
+        main_app()
             
