@@ -19,4 +19,5 @@ def call_openai_chat_completion(prompt: str, model: str = "gpt-4-1106-preview") 
 
     try:
         return json.loads(content)
-    e
+    except json.JSONDecodeError:
+        return content
