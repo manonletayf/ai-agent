@@ -325,8 +325,9 @@ def search_people(company_name, locations, job_titles=None, seniorities=None, do
         for title in job_titles:
             params.append(("person_titles[]", title))
         params.append(("include_similar_titles", "true"))
-    for loc in locations:
-        params.append(("person_locations[]", loc))
+    if locations:  # Only add locations if provided
+        for loc in locations:
+            params.append(("person_locations[]", loc))
     if seniorities:
         for s in seniorities:
             params.append(("person_seniorities[]", s))
@@ -338,11 +339,12 @@ def search_people(company_name, locations, job_titles=None, seniorities=None, do
     params.append(("contact_email_status[]", "verified"))
     params.append(("per_page", str(per_page)))
     params.append(("page", str(page)))
+    
     search_type = "DOMAIN" if domains else "COMPANY"
     search_value = domains[0] if domains else company_name
     print(f"\n🔍 === SEARCHING FOR {search_type}: {search_value} ===")
     print(f"📍 Job titles: {job_titles if job_titles else 'Any position'}")
-    print(f"🌍 Locations: {locations}")
+    print(f"🌍 Locations: {locations if locations else 'All locations'}")
     print(f"👥 Seniorities: {seniorities if seniorities else 'Any level'}")
     if domains:
         print(f"🌐 Domains: {domains}")
@@ -983,7 +985,8 @@ def main_app():
     st.session_state["selected_domains"] = selected
 
     locations_input = st.text_input(
-        "Location (1 to 2), separated by ; (e.g. London ; Paris)",
+        "Location (optional, 1 to 2), separated by ; (e.g. London ; Paris)",
+        help="Leave empty to search all locations"
     )
     seniorities = st.multiselect(
         "Seniority (optional, select up to 2)",
@@ -1004,8 +1007,8 @@ def main_app():
         # Update session state with current selections for persistence
         st.session_state["selected_domains"] = selected
         
-        if not selected or not locations:
-            st.error("Please select at least:\n• 1 domain\n• 1 location")
+        if not selected:
+            st.error("Please select at least 1 domain")
         else:
             try:
                 # Clear all previous results and cache
@@ -1050,7 +1053,10 @@ def main_app():
                             search_terms = []
                             if job_titles:
                                 search_terms.append(f"titles: {', '.join(job_titles)}")
-                            search_terms.append(f"locations: {', '.join(locations)}")
+                            if locations:
+                                search_terms.append(f"locations: {', '.join(locations)}")
+                            else:
+                                search_terms.append("locations: All locations")
                             search_terms.append(f"domain: {item}")
                             st.write(f"   📍 Search terms: {' | '.join(search_terms)}")
                             if seniorities:
@@ -1085,6 +1091,20 @@ def main_app():
             last_name = p.get("last_name", "")
             display_name = f"{first_name} {last_name}".strip()
             
+            # Build location string from Apollo API response fields
+            location_parts = []
+            if p.get("present_raw_address"):
+                location = p.get("present_raw_address")
+            else:
+                # Fallback to building location from individual fields
+                if p.get("city"):
+                    location_parts.append(p.get("city"))
+                if p.get("state"):
+                    location_parts.append(p.get("state"))
+                if p.get("country"):
+                    location_parts.append(p.get("country"))
+                location = ", ".join(location_parts) if location_parts else "Location not available"
+            
             rows.append({
                 "First Name": first_name,
                 "Last Name": last_name,
@@ -1092,7 +1112,7 @@ def main_app():
                 "Name": display_name,  # Keep for backward compatibility
                 "Title": p.get("title"),
                 "Company": p.get("searched_company"),  # Use the company that was searched for
-                "Location": p.get("present_raw_address") or f"{p.get('city')}, {p.get('country')}",
+                "Location": location,
                 "LinkedIn": p.get("linkedin_url"),
                 "ID": p.get("id")  # Keep Apollo API ID for enrichment
             })
