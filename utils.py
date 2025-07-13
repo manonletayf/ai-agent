@@ -418,6 +418,14 @@ def export_contacts_to_hubspot(df, list_name="AI Agent Contacts", verify_members
     
     Returns:
         dict: Summary of export results
+    
+    HubSpot Property Mapping:
+        - Name → firstname, lastname
+        - Title → jobtitle
+        - Company → company
+        - Location → city
+        - Email → email
+        - LinkedIn → hs_linkedin_url
     """
     access_token = os.getenv("HUBSPOT_ACCESS_TOKEN")
     if not access_token:
@@ -586,14 +594,12 @@ def export_contacts_to_hubspot(df, list_name="AI Agent Contacts", verify_members
                     # Update existing contact
                     contact_id = existing_contact['id']
                     
-                    # Prepare update properties
+                    # Prepare update properties - always update these key properties
                     update_properties = {}
-                    if 'Title' in row and pd.notna(row['Title']) and row['Title']:
-                        update_properties["jobtitle"] = str(row['Title'])
-                    if 'Company' in row and pd.notna(row['Company']) and row['Company']:
-                        update_properties["company"] = str(row['Company'])
-                    if 'Location' in row and pd.notna(row['Location']) and row['Location']:
-                        update_properties["city"] = str(row['Location'])
+                    update_properties["jobtitle"] = str(row.get('Title', '')) if pd.notna(row.get('Title')) and row.get('Title') else ''
+                    update_properties["company"] = str(row.get('Company', '')) if pd.notna(row.get('Company')) and row.get('Company') else ''
+                    update_properties["city"] = str(row.get('Location', '')) if pd.notna(row.get('Location')) and row.get('Location') else ''
+                    update_properties["hs_linkedin_url"] = str(row.get('LinkedIn', '')) if pd.notna(row.get('LinkedIn')) and row.get('LinkedIn') else ''
                     
                     if update_properties:
                         try:
@@ -616,13 +622,11 @@ def export_contacts_to_hubspot(df, list_name="AI Agent Contacts", verify_members
                         "lastname": lastname
                     }
                     
-                    # Add optional properties
-                    if 'Title' in row and pd.notna(row['Title']) and row['Title']:
-                        properties["jobtitle"] = str(row['Title'])
-                    if 'Company' in row and pd.notna(row['Company']) and row['Company']:
-                        properties["company"] = str(row['Company'])
-                    if 'Location' in row and pd.notna(row['Location']) and row['Location']:
-                        properties["city"] = str(row['Location'])
+                    # Add optional properties - ensure all properties are set even if empty
+                    properties["jobtitle"] = str(row.get('Title', '')) if pd.notna(row.get('Title')) and row.get('Title') else ''
+                    properties["company"] = str(row.get('Company', '')) if pd.notna(row.get('Company')) and row.get('Company') else ''
+                    properties["city"] = str(row.get('Location', '')) if pd.notna(row.get('Location')) and row.get('Location') else ''
+                    properties["hs_linkedin_url"] = str(row.get('LinkedIn', '')) if pd.notna(row.get('LinkedIn')) and row.get('LinkedIn') else ''
                     
                     try:
                         create_response = client.api_request({
@@ -719,7 +723,7 @@ def export_contacts_to_hubspot(df, list_name="AI Agent Contacts", verify_members
                                 contact_response = client.api_request({
                                     "path": f"/crm/v3/objects/contacts/{contact_id}",
                                     "method": "GET",
-                                    "params": {"properties": "email,firstname,lastname,jobtitle,company"}
+                                    "params": {"properties": "email,firstname,lastname,jobtitle,company,city,hs_linkedin_url"}
                                 })
                                 
                                 if hasattr(contact_response, 'json'):
@@ -731,7 +735,9 @@ def export_contacts_to_hubspot(df, list_name="AI Agent Contacts", verify_members
                                         "email": props.get('email', ''),
                                         "name": f"{props.get('firstname', '')} {props.get('lastname', '')}".strip(),
                                         "title": props.get('jobtitle', ''),
-                                        "company": props.get('company', '')
+                                        "company": props.get('company', ''),
+                                        "location": props.get('city', ''),
+                                        "linkedin": props.get('hs_linkedin_url', '')
                                     }
                                     verification_data["verified_contacts"].append(contact_info)
                                     
@@ -763,6 +769,14 @@ def export_contacts_to_hubspot(df, list_name="AI Agent Contacts", verify_members
             if verbose:
                 for error in results['errors']:
                     print(f"     - {error}")
+        
+        # Add helpful information about configuring the list view
+        print(f"\n💡 To see Title, Location, and LinkedIn URL columns in HubSpot:")
+        print(f"   1. Go to the '{results['list_name']}' list in HubSpot")
+        print(f"   2. Click 'Actions' → 'Edit columns' or 'Customize view'")
+        print(f"   3. Add columns: Job Title, City, LinkedIn URL")
+        print(f"   4. Or when exporting, select 'Include all properties'")
+        print(f"   📍 All contact properties have been properly set during import")
         
         return results
         
@@ -931,31 +945,42 @@ def main_app():
     # Step 2 – select domains & filters
     st.subheader("2️⃣ Select Domains & Filters")
 
-    # Get available domain names
-    available_domains = [c["name"] for c in all_comps]
-
-    # Clean up selected domains - only keep those still available
-    valid_selected = [domain for domain in st.session_state["selected_domains"] if domain in available_domains]
-
-    # Select all checkbox
-    select_all = st.checkbox("Select All Domains")
-
-    # Handle select all logic
-    if select_all:
-        selected = available_domains
-        # Only update session state when select all is used
-        st.session_state["selected_domains"] = selected
-    else:
-        # Use the multiselect widget without immediate session state updates
+    # Get available domain names 
+    current_domains = [c["name"] for c in all_comps]
+    
+    # Only set stable options once - NEVER update them
+    if "stable_domain_options" not in st.session_state:
+        st.session_state["stable_domain_options"] = current_domains
+    
+    # Use the stable options (truly static)
+    stable_options = st.session_state["stable_domain_options"]
+    
+    # Select All button
+    if st.button("Select All"):
+        # Force all domains to be selected by setting a flag
+        st.session_state["force_select_all"] = True
+        st.rerun()
+    
+    # Main domain selection - only use default when forcing selection
+    if st.session_state.get("force_select_all", False):
+        # Force all domains to be selected
         selected = st.multiselect(
             "Select domains",
-            options=available_domains,
-            default=valid_selected
+            options=stable_options,
+            default=stable_options,  # Only use default when forcing
+            help="Select the domains you want to search for contacts in"
         )
-        # Don't update session state immediately - let the widget handle its own state
-        # Only update session state when we actually need persistence (like before search)
-    if len(selected) > 20:
-        st.warning("You have selected more than 20 domains. This may take a while and could hit API rate limits.")
+        st.session_state["force_select_all"] = False  # Reset flag
+    else:
+        # Let widget handle its own state naturally (no default parameter)
+        selected = st.multiselect(
+            "Select domains",
+            options=stable_options,
+            help="Select the domains you want to search for contacts in"
+        )
+    
+    # Update session state for compatibility with the rest of the app
+    st.session_state["selected_domains"] = selected
 
     locations_input = st.text_input(
         "Location (1 to 2), separated by ; (e.g. London ; Paris)",
@@ -1177,7 +1202,7 @@ def main_app():
         # Show count and clear button
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.write(f"📋 **{len(st.session_state['selected_contacts'])} contacts selected**")
+            st.write(f"**{len(st.session_state['selected_contacts'])} contacts selected**")
         with col2:
             if st.button("Clear All", type="secondary"):
                 st.session_state["selected_contacts"] = []

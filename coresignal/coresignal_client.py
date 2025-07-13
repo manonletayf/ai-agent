@@ -1,18 +1,18 @@
 # core/coresignal_client.py
 
 import requests
-from config import CORESIGNAL_API_KEY
+import os
 
 BASE_URL = "https://api.coresignal.com/cdapi/v2/company_base/search/filter"
 
 def search_companies(filters: dict) -> list[dict]:
     """
-    Envoie dynamiquement les filtres fournis à l’API Coresignal et retourne les résultats.
+    Envoie dynamiquement les filtres fournis à l'API Coresignal et retourne les résultats.
     """
 
     headers = {
         "accept": "application/json",
-        "apikey": CORESIGNAL_API_KEY,
+        "apikey": os.getenv("CORESIGNAL_API_KEY"),
         "Content-Type": "application/json"
     }
 

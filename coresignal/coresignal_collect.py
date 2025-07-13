@@ -1,16 +1,16 @@
 import requests
-from config import CORESIGNAL_API_KEY
+import os
 
 BASE_URL = "https://api.coresignal.com/cdapi/v2/company/base/collect/"
 
-def collect_company(company_id: str) -> dict:
+def collect_company_data(company_id: str) -> dict:
     """
     Retrieves full company data from Coresignal using the collect endpoint.
     """
     url = BASE_URL + company_id
     headers = {
         "accept": "application/json",
-        "apikey": CORESIGNAL_API_KEY
+        "apikey": os.getenv("CORESIGNAL_API_KEY")
     }
 
     response = requests.get(url, headers=headers)
