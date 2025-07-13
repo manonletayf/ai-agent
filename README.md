@@ -6,7 +6,7 @@ A Streamlit application for finding and enriching contacts from company domains 
 
 ### Passcode Protection
 
-The application now includes passcode protection to secure access. Users must enter a valid passcode before accessing the main application features.
+The application includes passcode protection to secure access. Users must enter a valid passcode before accessing the main application features.
 
 #### Setting Up the Passcode
 
@@ -24,60 +24,176 @@ The application now includes passcode protection to secure access. Users must en
 1. When you first access the app, you'll see a login screen
 2. Enter the correct passcode to access the main application
 3. Use the "🚪 Logout" button in the sidebar to end your session
-4. The session will persist until you logout or close the browser
+4. The session persists until you logout or close the browser
 
-#### Features
+## ✨ Features
 
-- 🔒 Secure passcode-based authentication
-- 🔄 Session persistence during use
-- 🚪 Easy logout functionality
-- 💡 User-friendly interface with helpful tips
+### 🔍 Domain Import Methods
+- **Excel Upload**: Import company domains from Excel files (requires "Company Domain Name" column)
+- **Manual Input**: Enter domains manually (one per line, without http:// or www.)
+- **HubSpot Integration**: Select and import from existing HubSpot company lists
 
-## Features
+### 🎯 Advanced Search & Filtering
+- **Location Filtering**: Optional location filters (up to 2 locations)
+- **Job Title Targeting**: Specify job titles (up to 5 titles, separated by semicolons)
+- **Seniority Levels**: Filter by seniority (owner, founder, c_suite, partner, vp, head, director, manager, senior, entry, intern)
+- **Domain-Based Search**: Search contacts by company domain for more accurate results
 
-- Import company domains from Excel files, manual input, or HubSpot lists
-- Search for contacts using Apollo API with advanced filtering
-- Enrich contacts with email addresses
-- Export selected contacts to Excel
-- Pagination and search result management
-- HubSpot integration for company list management
+### 📧 Contact Enrichment
+- **Email Discovery**: Enrich selected contacts with verified email addresses using Apollo API
+- **LinkedIn Integration**: Capture LinkedIn profile URLs when available
+- **Real-time Enrichment**: Contacts are enriched on-demand when selected
 
-## Setup
+### 📊 Results Management
+- **Paginated Results**: Browse search results with pagination (10 results per page)
+- **Selective Contact Management**: Choose specific contacts to enrich and export
+- **Session Persistence**: Maintain selected contacts across page refreshes
 
-1. Install dependencies:
+### 📤 Export Options
+- **Excel Export**: Download selected contacts as Excel files with all enriched data
+- **HubSpot Export**: Create or add contacts to HubSpot lists with full property mapping
+- **Comprehensive Data**: Export includes First Name, Last Name, Title, Company, Location, Email, LinkedIn, and Apollo ID
+
+## 🛠️ Setup
+
+### Prerequisites
+- Python 3.7+
+- Apollo API key
+- HubSpot Access Token (optional, for HubSpot integration)
+
+### Installation
+
+1. **Install dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Set up environment variables in `.env`:
-```
+2. **Set up environment variables in `.env`:**
+```env
 APOLLO_API_KEY=your_apollo_api_key
-HUBSPOT_ACCESS_TOKEN=your_hubspot_access_token
+HUBSPOT_ACCESS_TOKEN=your_hubspot_access_token  # Optional
 APP_PASSCODE=your_secure_passcode  # Optional, defaults to 'contacts2024'
 ```
 
-3. Run the application:
+3. **Run the application:**
 ```bash
 streamlit run app.py
 ```
 
-## Usage
+## 📋 Usage Guide
 
-1. **Authentication**: Enter the passcode to access the application
-2. **Import Domains**: Upload Excel file, enter manually, or select from HubSpot lists
-3. **Configure Search**: Set locations, job titles, and seniority filters
-4. **Search**: Find contacts matching your criteria
-5. **Select & Enrich**: Choose contacts and enrich with email addresses
-6. **Export**: Download selected contacts as Excel file
+### Step 1: Authentication
+- Enter the passcode to access the application
+- Use the logout button in the sidebar when finished
 
-## API Requirements
+### Step 2: Import Company Domains
+Choose one or more import methods:
+- **Excel Upload**: Upload file with "Company Domain Name" column
+- **Manual Entry**: Type domains one per line (e.g., google.com, microsoft.com)
+- **HubSpot Lists**: Select from existing HubSpot company lists
 
-- **Apollo API**: For contact search and enrichment
-- **HubSpot API**: For company list integration (optional)
+### Step 3: Configure Search Filters
+- **Select Domains**: Choose which imported domains to search
+- **Location**: Optional location filters (e.g., "London ; Paris")
+- **Job Titles**: Optional job title filters (e.g., "HR Director; Recruiter")
+- **Seniority**: Optional seniority level filters
 
-## Security Notes
+### Step 4: Search & Browse Results
+- Click "Start Search" to find contacts
+- Browse paginated results (10 per page)
+- View contact details including name, title, company, location, and LinkedIn
 
-- Keep your passcode secure and change it regularly
-- Use environment variables to store sensitive information
-- Consider using a strong, unique passcode for production use
-- The app uses session-based authentication - logout when finished
+### Step 5: Select & Enrich Contacts
+- Click "Select and enrich" on desired contacts
+- System automatically enriches contacts with email addresses
+- Selected contacts are maintained in your session
+
+### Step 6: Export Contacts
+Choose your export method:
+- **Excel Download**: Get immediate Excel file with all contact data
+- **HubSpot Export**: Create or add to HubSpot lists with custom list names
+
+## 🔧 API Requirements
+
+### Apollo API
+- **Purpose**: Contact search and email enrichment
+- **Required**: Yes
+- **Setup**: Add `APOLLO_API_KEY` to environment variables
+- **Features Used**: People search, email enrichment
+
+### HubSpot API
+- **Purpose**: Company list integration and contact export
+- **Required**: No (optional feature)
+- **Setup**: Add `HUBSPOT_ACCESS_TOKEN` to environment variables
+- **Features Used**: Company lists, contact creation, list management
+
+## 📊 HubSpot Integration Details
+
+### Company Lists
+- Automatically loads available HubSpot company lists
+- Supports multiple list retrieval methods for maximum compatibility
+- Imports company domains from selected lists
+
+### Contact Export
+- **Property Mapping**:
+  - Name → firstname, lastname
+  - Title → jobtitle
+  - Company → company
+  - Location → city
+  - Email → email
+  - LinkedIn → hs_linkedin_url
+- **Smart Handling**: Updates existing contacts, creates new ones as needed
+- **List Management**: Automatically creates lists or adds to existing ones
+- **Verification**: Optional membership verification after export
+
+## 🔒 Security & Best Practices
+
+### Authentication
+- Use strong, unique passcodes for production
+- Store sensitive information in environment variables
+- Regularly rotate API keys and passcodes
+
+### Data Privacy
+- Contact data is processed in real-time and not permanently stored
+- Session data is cleared on logout
+- API keys are never exposed in the interface
+
+### Performance
+- Pagination prevents overwhelming the interface
+- Rate limiting considerations for API calls
+- Efficient session state management
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **"No HubSpot company lists found"**
+   - Check HUBSPOT_ACCESS_TOKEN in environment
+   - Verify token has proper scopes for list access
+
+2. **"No contacts found" despite valid domains**
+   - Verify Apollo API key is valid
+   - Check if search filters are too restrictive
+   - Ensure domains are entered without http:// or www.
+
+3. **Contact enrichment failing**
+   - Check Apollo API rate limits
+   - Verify contact ID is valid
+   - Ensure API key has enrichment permissions
+
+### Debug Information
+- The application provides detailed logging in the console
+- Search parameters are displayed during operations
+- Error messages include specific failure reasons
+
+## 🤝 Contributing
+
+This application is designed for internal use. For modifications:
+1. Test changes thoroughly with sample data
+2. Ensure API rate limits are respected
+3. Maintain security best practices
+4. Update documentation for any new features
+
+## 📄 License
+
+Internal use only. Contact administrator for usage permissions.
