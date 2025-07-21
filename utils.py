@@ -933,7 +933,7 @@ def main_app():
     with col2:
         if len(all_comps) > 0 and st.button("🗑️ Clear All Domains", type="secondary"):
             st.session_state["all_companies"] = []
-            st.session_state["selected_domains"] = []
+            st.session_state["domain_selection"] = []
             # Clear manual text area
             if "manual_text_area" in st.session_state:
                 del st.session_state["manual_text_area"]
@@ -955,30 +955,20 @@ def main_app():
 
     # Select All button
     if st.button("Select All"):
-        # Force all domains to be selected by setting a flag
-        st.session_state["force_select_all"] = True
+        # Set all domains as selected using the widget's key
+        st.session_state["domain_selection"] = stable_options
         st.rerun()
 
-    # Main domain selection - only use default when forcing selection
-    if st.session_state.get("force_select_all", False):
-        # Force all domains to be selected
-        selected = st.multiselect(
-            "Select domains",
-            options=stable_options,
-            default=stable_options,  # Only use default when forcing
-            help="Select the domains you want to search for contacts in"
-        )
-        st.session_state["force_select_all"] = False  # Reset flag
-    else:
-        # Let widget handle its own state naturally (no default parameter)
-        selected = st.multiselect(
-            "Select domains",
-            options=stable_options,
-            help="Select the domains you want to search for contacts in"
-        )
+    # Main domain selection - let widget manage its own state
+    selected = st.multiselect(
+        "Select domains",
+        options=stable_options,
+        key="domain_selection",  # Widget auto-manages this state
+        help="Select the domains you want to search for contacts in"
+    )
 
-    # Update session state for compatibility with the rest of the app
-    st.session_state["selected_domains"] = selected
+    # Use the widget's state directly (no manual updates needed)
+    # selected is automatically st.session_state["domain_selection"]
 
     locations_input = st.text_input(
         "Location (optional, 1 to 2), separated by ; (e.g. London ; Paris)",
@@ -999,9 +989,6 @@ def main_app():
     if st.button("Start Search"):
         job_titles = [j.strip() for j in job_titles_input.split(";") if j.strip()]
         locations = [l.strip() for l in locations_input.split(";") if l.strip()]
-
-        # Update session state with current selections for persistence
-        st.session_state["selected_domains"] = selected
 
         if not selected:
             st.error("Please select at least 1 domain")

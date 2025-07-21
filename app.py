@@ -32,8 +32,8 @@ if "hubspot_companies" not in st.session_state:
     st.session_state["hubspot_companies"] = []
 if "all_companies" not in st.session_state:
     st.session_state["all_companies"] = []
-if "selected_domains" not in st.session_state:
-    st.session_state["selected_domains"] = []
+if "domain_selection" not in st.session_state:
+    st.session_state["domain_selection"] = []
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
